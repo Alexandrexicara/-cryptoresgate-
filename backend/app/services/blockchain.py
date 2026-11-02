@@ -1,3 +1,4 @@
+import asyncio
 import os
 import re
 from typing import Any
@@ -30,52 +31,65 @@ async def inspect_public_transaction(tx_hash: str) -> dict[str, Any]:
     if not _HASH_RE.fullmatch(tx_hash):
         raise ValueError("Informe um hash EVM válido de 32 bytes (0x + 64 caracteres hexadecimais).")
 
-    rpc_url = os.getenv("EVM_RPC_URL", "").strip()\n    network_name = os.getenv("EVM_NETWORK", "evm").strip() or "evm"
+    rpc_url = os.getenv("EVM_RPC_URL", "").strip()
+    network_name = os.getenv("EVM_NETWORK", "evm").strip() or "evm"
     if not rpc_url:
         raise BlockchainConfigurationError("Configure EVM_RPC_URL com um endpoint RPC público somente leitura.")
 
     timeout = httpx.Timeout(12.0, connect=5.0)
     async with httpx.AsyncClient(timeout=timeout) as client:
         async def rpc(method: str, params: list[Any]) -> Any:
-            response = await client.post(
-                rpc_url,
-                json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params},
-                headers={"Content-Type": "application/json"},
-            )
-            response.raise_for_status()
-            payload = response.json()
+            try:
+                response = await client.post(
+                    rpc_url,
+                    json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params},
+                    headers={"Content-Type": "application/json"},
+                )
+                response.raise_for_status()
+                payload = response.json()
+            except (httpx.HTTPError, ValueError) as exc:
+                raise BlockchainProviderError("Não foi possível consultar o explorador RPC configurado.") from exc
+            if not isinstance(payload, dict):
+                raise BlockchainProviderError("O provedor RPC retornou uma resposta inválida.")
             if payload.get("error"):
                 raise BlockchainProviderError("O provedor RPC recusou a consulta.")
             return payload.get("result")
 
-        try:
-            tx, receipt = await __import__("asyncio").gather(
-                rpc("eth_getTransactionByHash", [tx_hash]),
-                rpc("eth_getTransactionReceipt", [tx_hash]),
-            )
-            latest_block = await rpc("eth_blockNumber", [])
-        except (httpx.HTTPError, ValueError) as exc:
-            raise BlockchainProviderError("Não foi possível consultar o explorador RPC configurado.") from exc
+        tx, receipt = await asyncio.gather(
+            rpc("eth_getTransactionByHash", [tx_hash]),
+            rpc("eth_getTransactionReceipt", [tx_hash]),
+        )
+        latest_block = await rpc("eth_blockNumber", [])
 
     if tx is None:
-        return {"found": False, "transaction_hash": tx_hash, "status": "not_found",
-                "notice": "A transação não foi encontrada neste RPC. Isso não prova perda de ativos."}
+        return {
+            "found": False,
+            "transaction_hash": tx_hash,
+            "status": "not_found",
+            "notice": "A transação não foi encontrada neste RPC. Isso não prova perda de ativos.",
+        }
+    if not isinstance(tx, dict):
+        raise BlockchainProviderError("O provedor RPC retornou dados de transação inválidos.")
 
     status = "pending"
-    if receipt is not None:
-        status = "success" if receipt.get("status") == "0x1" else "failed"
+    if isinstance(receipt, dict):
+        receipt_status = receipt.get("status")
+        status = "success" if receipt_status == "0x1" else "failed" if receipt_status == "0x0" else "unknown"
+
+    block_number = _quantity(tx.get("blockNumber"))
+    latest_number = _quantity(latest_block)
+    confirmations = max(0, latest_number - block_number + 1) if latest_number is not None and block_number is not None else 0
 
     return {
         "found": True,
         "transaction_hash": tx_hash,
         "network": network_name,
         "status": status,
-        "block_number": _quantity(tx.get("blockNumber")),
-        "confirmations": max(0, (_quantity(latest_block) or 0) - (_quantity(tx.get("blockNumber")) or 0) + 1)
-            if tx.get("blockNumber") else 0,
+        "block_number": block_number,
+        "confirmations": confirmations,
         "from_address": tx.get("from"),
         "to_address": tx.get("to"),
         "value_wei": _quantity(tx.get("value")),
-        "gas_used": _quantity(receipt.get("gasUsed")) if receipt else None,
+        "gas_used": _quantity(receipt.get("gasUsed")) if isinstance(receipt, dict) else None,
         "notice": "Dados públicos da blockchain. Endereços não revelam identidade civil; status não garante recuperação.",
     }
