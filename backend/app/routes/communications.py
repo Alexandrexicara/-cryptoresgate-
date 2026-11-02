@@ -1,20 +1,27 @@
 import hashlib
 import os
 import secrets
+import hmac
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import psycopg
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Header, HTTPException, Query
 from pydantic import BaseModel, EmailStr, Field
 
 from app.services.notifications import (
     CommunicationConfigurationError,
+    decrypt_contact,
     encrypt_contact,
     send_transactional_email,
 )
 
 router = APIRouter(prefix="/api/v1", tags=["communications"])
+
+
+class CaseUpdateNotice(BaseModel):
+    subject: str = Field(min_length=3, max_length=120)
+    message: str = Field(min_length=5, max_length=4000)
 
 
 class ContactEnrollment(BaseModel):
@@ -187,3 +194,55 @@ def revoke_contact(case_reference: str) -> dict[str, str]:
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Não foi possível revogar o contato.") from exc
     return {"status": "revoked", "message": "Consentimento de e-mail revogado e contato removido."}
+
+
+@router.post("/cases/{case_reference}/notifications", status_code=202)
+def send_case_update(
+    case_reference: str,
+    payload: CaseUpdateNotice,
+    x_operator_key: str | None = Header(default=None),
+) -> dict[str, str]:
+    configured_key = os.getenv("OPERATOR_API_KEY", "")
+    if not configured_key or not x_operator_key or not hmac.compare_digest(configured_key, x_operator_key):
+        raise HTTPException(status_code=401, detail="Autenticação de operador inválida.")
+    ref = case_reference.strip().upper()
+    if not ref.startswith("CR-") or len(ref) != 35:
+        raise HTTPException(status_code=404, detail="Caso não encontrado.")
+    try:
+        with _connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """SELECT c.id,c.contact_ciphertext
+                       FROM cases c
+                       JOIN contact_preferences cp ON cp.case_id=c.id
+                       WHERE c.public_id=%s AND cp.verified_at IS NOT NULL
+                         AND c.contact_consent_at IS NOT NULL""",
+                    (ref,),
+                )
+                row = cur.fetchone()
+                if not row or not row[1]:
+                    raise HTTPException(status_code=409, detail="O caso não possui e-mail verificado e consentimento ativo.")
+                case_id, encrypted = row
+                cur.execute(
+                    """SELECT count(*) FROM audit_events
+                       WHERE case_id=%s AND action='case_update_email_sent'
+                         AND created_at > now() - interval '24 hours'""",
+                    (case_id,),
+                )
+                if cur.fetchone()[0] >= 5:
+                    raise HTTPException(status_code=429, detail="Limite diário de notificações deste caso atingido.")
+                recipient = decrypt_contact(encrypted)
+                send_transactional_email(recipient, payload.subject, payload.message)
+                cur.execute(
+                    """INSERT INTO audit_events (case_id,actor_type,action,details)
+                       VALUES (%s,'operator','case_update_email_sent',
+                         jsonb_build_object('channel','email','subject',%s))""",
+                    (case_id, payload.subject),
+                )
+    except HTTPException:
+        raise
+    except CommunicationConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Não foi possível enviar a atualização pelo provedor de e-mail.") from exc
+    return {"status": "sent_to_provider", "message": "Atualização enviada ao provedor de e-mail para o contato verificado."}
