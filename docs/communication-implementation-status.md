@@ -4,6 +4,8 @@
 
 - Endpoint `POST /api/v1/cases/{case_reference}/contact`: registra endereço informado pelo titular somente com consentimento explícito, criptografa o e-mail e inicia confirmação.
 - Endpoint `GET /api/v1/contact/verify?token=...`: confirma token de uso único com validade de 30 minutos.
+- Endpoint `DELETE /api/v1/cases/{case_reference}/contact`: revoga o consentimento e remove o contato armazenado.
+- Endpoint `POST /api/v1/cases/{case_reference}/notifications`: envia atualização de caso somente para e-mail verificado, com consentimento ativo, autenticação de operador e limite de cinco mensagens em 24 horas.
 - Limite de três solicitações de confirmação por caso por hora.
 - Hash do endereço para busca/auditoria; e-mail criptografado com Fernet.
 - Auditoria do consentimento e da confirmação.
@@ -16,6 +18,7 @@
 - `CONTACT_ENCRYPTION_KEY`: chave Fernet gerada fora do repositório; manter estável e fazer backup seguro. Perder a chave impede descriptografar contatos existentes.
 - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`.
 - `PUBLIC_APP_URL`: URL pública do frontend, opcional (padrão `https://cryptoresgate.netlify.app`).
+- `OPERATOR_API_KEY`: segredo longo para autorizar notificações operacionais; guardar somente no servidor e no painel seguro do operador.
 - `SMTP_USE_SSL`: `true` para SMTP SSL direto, senão STARTTLS.
 - `SMTP_TIMEOUT_SECONDS`: timeout opcional.
 
