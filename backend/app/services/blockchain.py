@@ -30,7 +30,7 @@ async def inspect_public_transaction(tx_hash: str) -> dict[str, Any]:
     if not _HASH_RE.fullmatch(tx_hash):
         raise ValueError("Informe um hash EVM válido de 32 bytes (0x + 64 caracteres hexadecimais).")
 
-    rpc_url = os.getenv("EVM_RPC_URL", "").strip()
+    rpc_url = os.getenv("EVM_RPC_URL", "").strip()\n    network_name = os.getenv("EVM_NETWORK", "evm").strip() or "evm"
     if not rpc_url:
         raise BlockchainConfigurationError("Configure EVM_RPC_URL com um endpoint RPC público somente leitura.")
 
@@ -68,7 +68,7 @@ async def inspect_public_transaction(tx_hash: str) -> dict[str, Any]:
     return {
         "found": True,
         "transaction_hash": tx_hash,
-        "network": "evm",
+        "network": network_name,
         "status": status,
         "block_number": _quantity(tx.get("blockNumber")),
         "confirmations": max(0, (_quantity(latest_block) or 0) - (_quantity(tx.get("blockNumber")) or 0) + 1)
