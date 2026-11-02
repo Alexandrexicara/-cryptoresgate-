@@ -16,9 +16,14 @@ jobs:
           python-version: "3.12"
       - name: Install backend dependencies
         run: pip install -r backend/requirements.txt
+      - name: Install test runner
+        run: pip install pytest
       - name: Compile backend
         working-directory: backend
         run: python -m compileall -q app mcp_server.py
+      - name: Run backend tests
+        working-directory: backend
+        run: python -m pytest -q tests
   frontend-build:
     runs-on: ubuntu-latest
     steps:
@@ -26,8 +31,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: npm
-          cache-dependency-path: frontend/package.json
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm install
