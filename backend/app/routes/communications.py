@@ -150,3 +150,40 @@ def verify_contact(token: str = Query(min_length=20, max_length=200)) -> dict[st
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Não foi possível confirmar o e-mail.") from exc
     return {"status": "verified", "case_reference": case_ref, "message": "E-mail confirmado. Você receberá somente atualizações relacionadas ao seu caso."}
+
+
+@router.delete("/cases/{case_reference}/contact")
+def revoke_contact(case_reference: str) -> dict[str, str]:
+    ref = case_reference.strip().upper()
+    if not ref.startswith("CR-") or len(ref) != 35:
+        raise HTTPException(status_code=404, detail="Caso não encontrado.")
+    try:
+        with _connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT id FROM cases WHERE public_id=%s", (ref,))
+                case = cur.fetchone()
+                if not case:
+                    raise HTTPException(status_code=404, detail="Caso não encontrado.")
+                case_id = case[0]
+                cur.execute("DELETE FROM contact_preferences WHERE case_id=%s", (case_id,))
+                cur.execute(
+                    """UPDATE cases SET contact_ciphertext=NULL,contact_lookup_hash=NULL,
+                       contact_channel=NULL,contact_consent_at=NULL,updated_at=now() WHERE id=%s""",
+                    (case_id,),
+                )
+                cur.execute(
+                    """INSERT INTO consents
+                       (case_id,consent_type,document_version,accepted,accepted_at)
+                       VALUES (%s,'contact','revocation',FALSE,now())""",
+                    (case_id,),
+                )
+                cur.execute(
+                    """INSERT INTO audit_events (case_id,actor_type,action,details)
+                       VALUES (%s,'user','email_consent_revoked',jsonb_build_object('channel','email'))""",
+                    (case_id,),
+                )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Não foi possível revogar o contato.") from exc
+    return {"status": "revoked", "message": "Consentimento de e-mail revogado e contato removido."}
