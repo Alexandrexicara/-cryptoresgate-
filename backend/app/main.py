@@ -1,14 +1,16 @@
 from fastapi import FastAPI
 
 from app.routes.analysis import router as analysis_router
+from app.routes.cases import router as cases_router
 
 app = FastAPI(
     title="CryptoResgate API",
-    version="0.2.0",
+    version="0.3.0",
     description="API para triagem consentida de casos de criptoativos.",
 )
 
 app.include_router(analysis_router)
+app.include_router(cases_router)
 
 
 @app.get("/health")
