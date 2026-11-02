@@ -1,2 +1,3 @@
-# Root-level dependency file for Render service deployments.
+# Root-level dependencies for Render; backend remains the source of truth.
 -r backend/requirements.txt
+-e .
