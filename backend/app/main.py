@@ -1,5 +1,7 @@
 import os
-from fastapi import FastAPI
+
+import psycopg
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.routes.analysis import router as analysis_router
@@ -33,6 +35,22 @@ app.include_router(blockchain_router)
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "service": "cryptoresgate-api"}
+
+
+@app.get("/ready")
+def readiness() -> dict[str, str]:
+    """Readiness check: confirms DB connectivity separately from process liveness."""
+    dsn = os.getenv("DATABASE_URL", "").strip()
+    if not dsn:
+        raise HTTPException(status_code=503, detail="DATABASE_URL ainda não foi configurada.")
+    try:
+        with psycopg.connect(dsn, connect_timeout=5) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+                cur.fetchone()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Banco de dados indisponível ou inacessível.") from exc
+    return {"status": "ready", "database": "connected"}
 
 
 @app.get("/")
