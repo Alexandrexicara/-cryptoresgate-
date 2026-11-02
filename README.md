@@ -34,6 +34,10 @@ Configurar credenciais somente em variáveis de ambiente no servidor. Nunca colo
 
 A primeira implementação é experimental e limitada a pagamentos nativos da rede escolhida, com divisão imediata entre dois endereços informados no deploy. Não é uma carteira de custódia e não recupera ativos automaticamente de endereços de terceiros. Não implantar em mainnet antes de testes, revisão independente e auditoria.
 
+## Comunicação automatizada
+
+A estratégia de contato por carteira e por canais tradicionais, incluindo Push Protocol, XMTP, ENS, e-mail e WhatsApp, está documentada em [docs/communication-automation.md](docs/communication-automation.md). O sistema não descobre dados privados nem envia mensagens em massa para endereços aleatórios; a entrega depende da compatibilidade do canal e de autorização/base legal válida.
+
 ## Desenvolvimento
 
 Consulte os documentos em `docs/`. O projeto ainda está em fase inicial; funcionalidades não implementadas não devem ser anunciadas como disponíveis.
