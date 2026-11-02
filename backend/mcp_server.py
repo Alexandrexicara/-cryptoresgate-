@@ -14,6 +14,9 @@ from typing import Any
 import psycopg
 from mcp.server.fastmcp import FastMCP
 
+os.environ.setdefault("FASTMCP_HOST", "0.0.0.0")
+os.environ.setdefault("FASTMCP_PORT", os.environ.get("PORT", "8000"))
+
 mcp = FastMCP(
     "CryptoResgate",
     instructions=(
@@ -74,11 +77,12 @@ def submit_recovery_case(
     reported_issue: str,
     asset_contract: str = "",
     description: str = "",
+    consent_to_privacy_notice: bool = False,
     consent_to_analysis: bool = False,
 ) -> dict[str, str]:
     """Submit a voluntary case. Requires explicit analysis consent; returns a private case reference."""
-    if not consent_to_analysis:
-        return {"error": "Explicit consent_to_analysis=true is required before submitting."}
+    if not consent_to_privacy_notice or not consent_to_analysis:
+        return {"error": "Explicit consent_to_privacy_notice=true and consent_to_analysis=true are both required."}
     network = network.strip().lower()
     tx_hash = transaction_hash.strip()
     issue = reported_issue.strip()
@@ -105,8 +109,9 @@ def submit_recovery_case(
             cur.execute(
                 """INSERT INTO consents
                    (case_id, consent_type, document_version, accepted, accepted_at)
-                   VALUES (%s, 'analysis', '2026-11-02', TRUE, now())""",
-                (case_id,),
+                   VALUES (%s, 'privacy', '2026-11-02', TRUE, now()),
+                          (%s, 'analysis', '2026-11-02', TRUE, now())""",
+                (case_id, case_id),
             )
             cur.execute(
                 """INSERT INTO audit_events (case_id, actor_type, action, details)
