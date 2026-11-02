@@ -30,7 +30,8 @@ function App(){
   async function inspectTransaction(e){
     e.preventDefault();setBusy(true);setError("");setTxData(null);
     try{setTxData(await request("/api/v1/public/transaction/"+encodeURIComponent(txSearch.trim())))}catch(err){setError(err.message)}finally{setBusy(false)}
-  }\n  async function runAnalysis(e){
+  }
+  async function runAnalysis(e){
     e.preventDefault();setBusy(true);setError("");setAnalysis(null);
     try{setAnalysis(await request("/api/v1/analyze-case",{method:"POST",body:JSON.stringify({network:form.network,transaction_hash:form.transaction_hash,asset_contract:form.asset_contract,reported_issue:form.reported_issue,public_evidence:form.description})}))}catch(err){setError(err.message)}finally{setBusy(false)}
   }
