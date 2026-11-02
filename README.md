@@ -37,3 +37,24 @@ A primeira implementação é experimental e limitada a pagamentos nativos da re
 ## Desenvolvimento
 
 Consulte os documentos em `docs/`. O projeto ainda está em fase inicial; funcionalidades não implementadas não devem ser anunciadas como disponíveis.
+
+
+## Interface web
+
+O frontend está em `frontend/`, usando React e Vite.
+
+- `npm install` — instala as dependências.
+- `npm run dev` — inicia o ambiente local.
+- `npm run build` — gera a versão de produção em `frontend/dist`.
+
+Configure `VITE_API_URL` no frontend para apontar à API. No backend, configure `CORS_ORIGINS` com as origens exatas autorizadas.
+
+## Consulta pública de transações EVM
+
+A rota `GET /api/v1/public/transaction/{tx_hash}` consulta uma transação por meio do endpoint RPC configurado em `EVM_RPC_URL`. A consulta é somente leitura e não identifica titulares nem movimenta ativos. O endpoint RPC deve corresponder à rede que será consultada.
+
+## Estado de implementação
+
+A interface inicial, cadastro/consulta de casos, triagem NVIDIA e consulta pública EVM estão implementados no código. O funcionamento integrado ainda depende da configuração do banco, RPC e credenciais do provedor, além de testes de ponta a ponta.
+
+Autenticação social, painel administrativo completo, prova criptográfica de carteira e monitoramento contínuo de redes permanecem pendentes. Não anuncie esses recursos como disponíveis até serem implementados e testados.
