@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { ShieldCheck, Search, FilePlus2, Activity, ArrowUpRight, LockKeyhole, Menu, X, AlertTriangle, CheckCircle2, Wallet, Cpu, Database } from "lucide-react";
 
 const API = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
@@ -18,7 +18,7 @@ function App(){
   const go=(v)=>{setTab(v);setMenu(false);setError("");setSuccess("");};
   async function submit(e){
     e.preventDefault();setBusy(true);setError("");setSuccess("");
-    try { const data=await request("/api/v1/cases",{method:"POST",body:JSON.stringify(form)});setRef(data.case_reference);setSuccess("Caso cadastrado. Guarde sua referência para consultar o andamento.");go("acompanhar");setLookup(data.case_reference); }
+    try { const data=await request("/api/v1/cases",{method:"POST",body:JSON.stringify(form)});setRef(data.case_reference);setLookup(data.case_reference);setTab("acompanhar");setError("");setSuccess("Caso cadastrado. Guarde sua referência para consultar o andamento."); }
     catch(err){setError(err.message)} finally{setBusy(false)}
   }
   async function checkStatus(e){
