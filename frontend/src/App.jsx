@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ShieldCheck, Search, FilePlus2, Activity, ArrowUpRight, LockKeyhole, Menu, X, AlertTriangle, CheckCircle2, Wallet, Cpu, Database } from "lucide-react";
 
-const API = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+const API = (import.meta.env.VITE_API_URL || "https://cryptoresgate.onrender.com").replace(/\/$/, "");
 const notice = "O CryptoResgate não solicita seed phrase, chave privada, senha ou código 2FA. Nunca envie esses dados.";
 async function request(path, options={}) {
   const response = await fetch(`${API}${path}`, { ...options, headers: { "Content-Type":"application/json", ...(options.headers||{}) } });
