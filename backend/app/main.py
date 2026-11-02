@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.routes.analysis import router as analysis_router
 from app.routes.cases import router as cases_router
+from app.routes.blockchain import router as blockchain_router
 
 app = FastAPI(
     title="CryptoResgate API",
@@ -26,6 +27,7 @@ app.add_middleware(
 
 app.include_router(analysis_router)
 app.include_router(cases_router)
+app.include_router(blockchain_router)
 
 
 @app.get("/health")
