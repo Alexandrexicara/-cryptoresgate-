@@ -37,3 +37,17 @@ jobs:
       - name: Build frontend
         working-directory: frontend
         run: npm run build
+
+  contracts-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install contract dependencies
+        working-directory: contracts
+        run: npm install
+      - name: Compile and test contract
+        working-directory: contracts
+        run: npm test
