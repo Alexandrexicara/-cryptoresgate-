@@ -8,6 +8,7 @@ from app.routes.analysis import router as analysis_router
 from app.routes.cases import router as cases_router
 from app.routes.blockchain import router as blockchain_router
 from app.routes.communications import router as communications_router
+from app.routes.stellar import router as stellar_router
 
 app = FastAPI(
     title="CryptoResgate API",
@@ -32,6 +33,7 @@ app.include_router(analysis_router)
 app.include_router(cases_router)
 app.include_router(blockchain_router)
 app.include_router(communications_router)
+app.include_router(stellar_router)
 
 
 @app.get("/health")
