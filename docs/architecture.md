@@ -27,3 +27,8 @@ Começar com documentação e APIs oficiais públicas. Não usar credenciais de 
 - Nem toda transação é reversível.
 - Tokens em endereços controlados por exchanges dependem da política e capacidade técnica da exchange.
 - A primeira versão do contrato inteligente não suporta todos os tokens ou redes.
+
+
+## Central de comunicação automatizada
+
+A estratégia técnica e os limites de entrega por Push Protocol, XMTP, ENS, e-mail e WhatsApp estão especificados em [docs/communication-automation.md](communication-automation.md). A comunicação não identifica titulares por endereço blockchain: só usa canais compatíveis e contatos publicados/fornecidos voluntariamente, respeitando consentimento, anti-spam e revogação. O contrato inteligente não concede autorização em nome do destinatário nem força exchanges a encaminhar mensagens.
