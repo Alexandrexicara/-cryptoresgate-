@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 
 from app.services.solana import _token_deltas, _parsed_native_transfers, _burn_operations, _token_transfer_operations, _format_sol, inspect_solana_transaction
