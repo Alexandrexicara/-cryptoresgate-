@@ -52,6 +52,7 @@ def overview(x_operator_key: str | None = Header(default=None)):
 import asyncio
 from urllib.parse import quote
 import httpx
+from app.routes.discovery import _inspect_address, NETWORKS as DISCOVERY_NETWORKS
 
 @router.post("/monitor/run")
 async def run_monitor(x_operator_key: str | None = Header(default=None)):
@@ -69,6 +70,12 @@ async def run_monitor(x_operator_key: str | None = Header(default=None)):
                        WHERE status NOT IN ('closed','ineligible')
                        ORDER BY updated_at ASC LIMIT 100""")
         cases=cur.fetchall()
+        cur.execute("""SELECT wp.case_id,c.public_id,wp.wallet_address,wp.chain_id
+                       FROM wallet_proofs wp JOIN cases c ON c.id=wp.case_id
+                       WHERE wp.verified=TRUE AND wp.expires_at > now()
+                         AND c.status NOT IN ('closed','ineligible')
+                       ORDER BY wp.created_at ASC LIMIT 100""")
+        verified_wallets=cur.fetchall()
     timeout=httpx.Timeout(25.0,connect=8.0)
     async with httpx.AsyncClient(timeout=timeout) as client:
         async def inspect(case):
@@ -88,14 +95,40 @@ async def run_monitor(x_operator_key: str | None = Header(default=None)):
             except Exception as exc:
                 return (case_id,ref,network,{"status":"provider_error","detail":str(exc)[:200]})
         results=await asyncio.gather(*(inspect(c) for c in cases))
+        chain_to_network={chain_id:name for name,(url,chain_id) in DISCOVERY_NETWORKS.items()}
+        async def inspect_wallet(wallet):
+            case_id,ref,address,chain_id=wallet
+            network=chain_to_network.get(chain_id)
+            if not network:
+                return (case_id,ref,address,chain_id,None,{"status":"unsupported_chain_id"})
+            data=await _inspect_address(client,address,network)
+            return (case_id,ref,address,chain_id,network,data)
+        wallet_results=await asyncio.gather(*(inspect_wallet(w) for w in verified_wallets),return_exceptions=False)
     saved=0
+    wallet_saved=0
     with _db() as conn, conn.cursor() as cur:
         for case_id,ref,network,result in results:
             cur.execute("""INSERT INTO case_evidence(case_id,evidence_type,content,is_public)
                            VALUES (%s,'analysis',%s::jsonb,TRUE)""",(case_id,__import__("json").dumps({"source":"scheduled_public_chain_monitor","reference":ref,"network":network,**result})))
             saved+=1
+        for case_id,ref,address,chain_id,network,result in wallet_results:
+            content={"source":"scheduled_verified_wallet_discovery","reference":ref,
+                     "wallet_address":address,"chain_id":chain_id,"network":network,**result}
+            cur.execute("""SELECT 1 FROM case_evidence
+                           WHERE case_id=%s AND evidence_type='analysis'
+                             AND content=%s::jsonb LIMIT 1""",
+                        (case_id,__import__("json").dumps(content)))
+            if cur.fetchone():
+                continue
+            cur.execute("""INSERT INTO case_evidence(case_id,evidence_type,content,is_public)
+                           VALUES (%s,'analysis',%s::jsonb,FALSE)""",
+                        (case_id,__import__("json").dumps(content)))
+            wallet_saved+=1
         cur.execute("""INSERT INTO audit_events(actor_type,action,details)
                        VALUES ('system','scheduled_monitor_completed',%s::jsonb)""",
-                    (__import__("json").dumps({"cases_checked":len(results),"records_saved":saved}),))
+                    (__import__("json").dumps({"cases_checked":len(results),"records_saved":saved,
+                                               "verified_wallets_checked":len(wallet_results),
+                                               "wallet_evidence_saved":wallet_saved}),))
     return {"status":"completed","cases_checked":len(results),"evidence_records_saved":saved,
-            "note":"Monitoramento somente leitura dos hashes já cadastrados; não localiza carteiras desconhecidas nem movimenta fundos."}
+            "verified_wallets_checked":len(wallet_results),"wallet_evidence_saved":wallet_saved,
+            "note":"Monitoramento somente leitura dos hashes e dos endereços com comprovação verificada; não localiza carteiras desconhecidas nem movimenta fundos."}
