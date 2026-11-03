@@ -213,15 +213,31 @@ async def inspect_public_transaction(tx_hash: str, network: str | None = None) -
         metadata_block = hex(block_number) if block_number is not None else "latest"
 
         async def token_metadata(contract: str) -> tuple[str, dict[str, Any]]:
-            async with metadata_semaphore:
-                symbol_result, decimals_result = await asyncio.gather(
-                    rpc("eth_call", [{"to": contract, "data": "0x95d89b41"}, metadata_block]),
-                    rpc("eth_call", [{"to": contract, "data": "0x313ce567"}, metadata_block]),
-                    return_exceptions=True,
-                )
+            async def read_metadata(block_tag: str) -> tuple[Any, Any]:
+                async with metadata_semaphore:
+                    return await asyncio.gather(
+                        rpc("eth_call", [{"to": contract, "data": "0x95d89b41"}, block_tag]),
+                        rpc("eth_call", [{"to": contract, "data": "0x313ce567"}, block_tag]),
+                        return_exceptions=True,
+                    )
+
+            symbol_result, decimals_result = await read_metadata(metadata_block)
             symbol = _decode_abi_string(symbol_result) if isinstance(symbol_result, str) else None
             decimals_raw = _quantity(decimals_result) if isinstance(decimals_result, str) else None
             decimals = decimals_raw if decimals_raw is not None and 0 <= decimals_raw <= 255 else None
+
+            # Some public RPCs prune historical contract state or reject eth_call
+            # at older blocks. Keep the exact historical result when available,
+            # but retry missing metadata at latest so a valid Transfer log still
+            # displays its token symbol and human-readable amount.
+            if metadata_block != "latest" and (symbol is None or decimals is None):
+                latest_symbol, latest_decimals = await read_metadata("latest")
+                if symbol is None and isinstance(latest_symbol, str):
+                    symbol = _decode_abi_string(latest_symbol)
+                if decimals is None and isinstance(latest_decimals, str):
+                    latest_raw = _quantity(latest_decimals)
+                    decimals = latest_raw if latest_raw is not None and 0 <= latest_raw <= 255 else None
+
             return contract, {"symbol": symbol, "decimals": decimals}
 
         metadata_results = await asyncio.gather(*(token_metadata(contract) for contract in contracts))
