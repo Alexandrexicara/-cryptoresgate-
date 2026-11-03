@@ -16,6 +16,7 @@ from app.routes.discovery import router as discovery_router
 from app.routes.admin import router as admin_router
 from app.routes.trace import router as trace_router
 from app.routes.trace_cases import router as trace_cases_router
+from app.routes.auto_discovery import router as auto_discovery_router
 
 app = FastAPI(
     title="CryptoResgate API",
@@ -60,6 +61,7 @@ app.include_router(discovery_router)
 app.include_router(admin_router)
 app.include_router(trace_router)
 app.include_router(trace_cases_router)
+app.include_router(auto_discovery_router)
 
 
 @app.get("/health")
@@ -110,6 +112,8 @@ async def _scheduled_case_monitor():
         try:
             async with httpx.AsyncClient(timeout=90.0) as client:
                 await client.post(base+"/api/v1/admin/monitor/run",
+                                  headers={"X-Operator-Key":key})
+                await client.post(base+"/api/v1/discovery/auto-scan",
                                   headers={"X-Operator-Key":key})
         except Exception:
             # A later cycle retries; service health must not depend on monitor availability.
