@@ -17,7 +17,12 @@ def _is_burn(address: Any) -> bool:
     if not isinstance(address, str):
         return False
     normalized = address.lower().removeprefix("0x")
-    return normalized in {"41" + "0" * 40, "0" * 40, "0" * 36 + "dead"}
+    return normalized in {
+        "41" + "0" * 40,
+        "0" * 40,
+        "0" * 36 + "dead",
+        "41" + "0" * 36 + "dead",
+    }
 
 
 def _format_trx(sun: int) -> str:
