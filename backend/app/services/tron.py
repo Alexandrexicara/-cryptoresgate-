@@ -58,7 +58,9 @@ async def inspect_tron_transaction(txid: str) -> dict[str,Any]:
     tokens=[decoded for log in logs if isinstance(log,dict) and (decoded:=_decode_trc20(log))]
     receipt=info.get("receipt") or {}
     confirmed=bool(info.get("blockNumber"))
-    success=confirmed and (receipt.get("result") in {None,"SUCCESS"}) and not tx.get("ret")
+    ret_values=tx.get("ret") or []
+    contract_failed=any(isinstance(item,dict) and item.get("contractRet") not in {None,"SUCCESS"} for item in ret_values)
+    success=confirmed and (receipt.get("result") in {None,"SUCCESS"}) and not contract_failed
     status="confirmed" if success else "failed" if confirmed else "pending"
     classification=("failed_on_chain" if status=="failed" else "pending_confirmation" if status=="pending"
                     else "confirmed_transfer_requires_recipient_verification" if native or tokens
