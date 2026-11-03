@@ -23,6 +23,7 @@ def test_rejects_invalid_evm_hash():
 
 def test_requires_rpc_configuration(monkeypatch):
     monkeypatch.delenv("EVM_RPC_URL", raising=False)
+    monkeypatch.setenv("EVM_NETWORK", "evm")
     valid_hash = "0x" + "a" * 64
     with pytest.raises(BlockchainConfigurationError):
         asyncio.run(inspect_public_transaction(valid_hash))
@@ -35,11 +36,12 @@ def test_resolves_supported_network_and_expected_chain_id(monkeypatch):
         _resolve_network("unknown-chain")
 
 
-def test_requires_network_specific_rpc(monkeypatch):
+def test_uses_public_rpc_default_when_no_override_is_set(monkeypatch):
     monkeypatch.delenv("POLYGON_RPC_URL", raising=False)
-    monkeypatch.delenv("EVM_RPC_URL", raising=False)
-    with pytest.raises(BlockchainConfigurationError):
-        _resolve_network("polygon")
+    name, url, chain_id = _resolve_network("polygon")
+    assert name == "polygon"
+    assert url == "https://polygon-bor-rpc.publicnode.com"
+    assert chain_id == 137
 
 
 def test_hex_quantity_conversion():
