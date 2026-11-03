@@ -83,5 +83,5 @@ def test_decodes_abi_symbol_and_formats_token_amount():
     assert _format_token_amount("1234500", 6) == "1.2345"
     assert _format_token_amount("1000000", 6) == "1"
     assert _format_token_amount("0", 18) == "0"
-    assert _format_token_amount("123456789012345678901234567890123456789", 18) == "123456789012345678.901234567890123456789"
+    assert _format_token_amount("123456789012345678901234567890123456789", 18) == "123456789012345678901.234567890123456789"
     assert _format_token_amount("1234500", None) is None
