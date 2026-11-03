@@ -361,8 +361,15 @@ def test_uses_blockscout_to_decode_historical_token_transfer_when_rpc_receipt_is
             }],
         }
 
+    class NoReceiptClient(_FakeRPCClient):
+        async def post(self, url, json, headers):
+            if json["method"] == "eth_getTransactionReceipt":
+                self.calls.append(json)
+                return _FakeRPCResponse({"jsonrpc": "2.0", "id": json["id"], "result": None})
+            return await super().post(url, json, headers)
+
     monkeypatch.setenv("POLYGON_RPC_URL", "https://polygon.example")
-    monkeypatch.setattr(blockchain.httpx, "AsyncClient", _FakeRPCClient)
+    monkeypatch.setattr(blockchain.httpx, "AsyncClient", NoReceiptClient)
     monkeypatch.setattr(blockchain, "_fetch_blockscout_transaction", blockscout_fallback)
     result = asyncio.run(blockchain.inspect_public_transaction(tx_hash, network="polygon"))
 
