@@ -39,6 +39,11 @@ def _token_deltas(meta: dict[str, Any]) -> list[dict[str, Any]]:
                        "direction":"received" if delta>0 else "sent"})
     return result
 
+def _format_sol(lamports: int) -> str:
+    whole, fraction = divmod(lamports, 1_000_000_000)
+    fractional = str(fraction).rjust(9, "0").rstrip("0")
+    return f"{whole}.{fractional}" if fractional else str(whole)
+
 def _parsed_native_transfers(transaction: dict[str, Any]) -> list[dict[str, Any]]:
     message=transaction.get("transaction",{}).get("message",{})
     meta=transaction.get("meta") or {}
