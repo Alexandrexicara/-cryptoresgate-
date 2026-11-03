@@ -194,6 +194,36 @@ def test_inspects_confirmed_transaction_and_decodes_token_transfer(monkeypatch):
     assert len(metadata_calls) == 2
     assert all(call["params"][1] == "0x100" for call in metadata_calls)
 
+def test_retries_missing_historical_token_metadata_at_latest(monkeypatch):
+    import app.services.blockchain as blockchain
+
+    class PrunedHistoricalMetadataClient(_FakeRPCClient):
+        async def post(self, url, json, headers):
+            if json["method"] == "eth_call" and json["params"][1] != "latest":
+                self.calls.append(json)
+                return _FakeRPCResponse({
+                    "jsonrpc": "2.0",
+                    "id": json["id"],
+                    "error": {"code": -32000, "message": "historical state unavailable"},
+                })
+            return await super().post(url, json, headers)
+
+    monkeypatch.setenv("POLYGON_RPC_URL", "https://polygon.example")
+    monkeypatch.setattr(blockchain.httpx, "AsyncClient", PrunedHistoricalMetadataClient)
+    result = asyncio.run(blockchain.inspect_public_transaction("0x" + "b" * 64, network="polygon"))
+
+    transfer = result["token_transfers"][0]
+    assert transfer["symbol"] == "USDC"
+    assert transfer["decimals"] == 6
+    assert transfer["amount"] == "1.2345"
+    metadata_calls = [
+        call for call in PrunedHistoricalMetadataClient.last_instance.calls
+        if call["method"] == "eth_call"
+    ]
+    assert len(metadata_calls) == 4
+    assert all(call["params"][1] == "0x100" for call in metadata_calls[:2])
+    assert all(call["params"][1] == "latest" for call in metadata_calls[2:])
+
 
 
 def test_classifies_confirmed_native_transfer_as_unverifiable_at_recipient(monkeypatch):
