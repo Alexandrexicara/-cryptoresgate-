@@ -227,3 +227,42 @@ def test_tron_inspects_confirmed_native_and_trc20_transfers(monkeypatch):
     assert result["token_transfers"][0]["amount_raw"] == "123456789"
     assert result["classification"] == "confirmed_transfer_requires_recipient_verification"
     assert result["recovery_candidate"] is False
+
+def test_tron_retries_transient_public_node_failure(monkeypatch):
+    import httpx
+    import app.services.tron as tron
+
+    attempts = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {}
+
+    class FlakyClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def post(self, url, json):
+            path = url.rsplit("/", 1)[-1]
+            attempts[path] = attempts.get(path, 0) + 1
+            if attempts[path] == 1:
+                raise httpx.ConnectError("temporary provider failure")
+            return FakeResponse()
+
+    monkeypatch.setattr(tron.httpx, "AsyncClient", FlakyClient)
+    result = asyncio.run(tron.inspect_tron_transaction("b" * 64))
+
+    assert result["found"] is False
+    assert attempts == {
+        "gettransactionbyid": 2,
+        "gettransactioninfobyid": 2,
+    }
