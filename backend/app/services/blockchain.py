@@ -294,7 +294,10 @@ async def inspect_public_transaction(tx_hash: str, network: str | None = None) -
 
         # Token metadata is best-effort: a non-standard token must not break the
         # transaction lookup. All calls remain read-only eth_call requests.
-        contracts = list(dict.fromkeys(item["token_contract"] for item in transfers))[:100]
+        contracts = list(dict.fromkeys(
+            item["token_contract"] for item in transfers
+            if item.get("symbol") is None or item.get("decimals") is None
+        ))[:100]
         metadata_semaphore = asyncio.Semaphore(10)
         # Read token metadata at the transaction's block, not at "latest":
         # upgradeable token contracts can change metadata between blocks.
@@ -332,8 +335,11 @@ async def inspect_public_transaction(tx_hash: str, network: str | None = None) -
         metadata = dict(metadata_results)
         for transfer in transfers:
             token = metadata.get(transfer["token_contract"], {})
-            transfer.update(token)
-            transfer["amount"] = _format_token_amount(transfer["amount_raw"], token.get("decimals"))
+            if transfer.get("symbol") is None:
+                transfer["symbol"] = token.get("symbol")
+            if transfer.get("decimals") is None:
+                transfer["decimals"] = token.get("decimals")
+            transfer["amount"] = _format_token_amount(transfer["amount_raw"], transfer.get("decimals"))
 
     has_native_value = (_quantity(tx.get("value")) or 0) > 0
     native_to_burn = has_native_value and _is_burn_address(tx.get("to"))
