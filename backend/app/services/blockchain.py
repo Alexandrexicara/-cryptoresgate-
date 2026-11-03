@@ -233,15 +233,22 @@ async def inspect_public_transaction(tx_hash: str, network: str | None = None) -
             transfer["amount"] = _format_token_amount(transfer["amount_raw"], token.get("decimals"))
 
     has_native_value = (_quantity(tx.get("value")) or 0) > 0
+    native_to_burn = has_native_value and _is_burn_address(tx.get("to"))
+    non_burn_transfers = [item for item in transfers if not item["destination_is_burn_address"]]
+    burn_transfer_count = len(transfers) - len(non_burn_transfers)
+    has_non_burn_transfer = bool(non_burn_transfers) or (has_native_value and not native_to_burn)
     if status == "failed":
         classification = "failed_on_chain"
         recipient_credit_verification_required = False
     elif status == "pending":
         classification = "pending_confirmation"
         recipient_credit_verification_required = False
-    elif status == "success" and (transfers or has_native_value):
+    elif status == "success" and has_non_burn_transfer:
         classification = "confirmed_transfer_recipient_credit_unverifiable"
         recipient_credit_verification_required = True
+    elif status == "success" and (burn_transfer_count or native_to_burn):
+        classification = "confirmed_burn_destination_not_recoverable"
+        recipient_credit_verification_required = False
     elif status == "success":
         classification = "successful_transaction_no_supported_transfer_detected"
         recipient_credit_verification_required = False
@@ -265,11 +272,16 @@ async def inspect_public_transaction(tx_hash: str, network: str | None = None) -
         "gas_used": _quantity(receipt.get("gasUsed")) if isinstance(receipt, dict) else None,
         "token_transfers": transfers,
         "token_transfer_count": len(transfers),
+        "non_burn_token_transfer_count": len(non_burn_transfers),
+        "burn_transfer_count": burn_transfer_count,
+        "native_destination_is_burn_address": native_to_burn,
         "notice": (
             "A transação falhou na rede; não há transferência confirmada neste recibo."
             if status == "failed"
             else "A transação ainda não foi confirmada. Isso não prova perda de ativos."
             if status == "pending"
+            else "O destino identificado é um endereço de queima. A transação não deve ser classificada como ativo recuperável."
+            if status == "success" and not recipient_credit_verification_required and (burn_transfer_count or native_to_burn)
             else "Transferência nativa ou de token confirmada na blockchain. Isso não comprova crédito interno em exchange nem possibilidade de recuperação; é necessária confirmação do destinatário."
             if recipient_credit_verification_required
             else "Transação confirmada, mas nenhum evento padrão ERC-20 Transfer foi identificado. Isso não prova perda; tokens não padronizados ou movimentos internos podem não aparecer neste formato."
