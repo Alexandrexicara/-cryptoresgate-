@@ -8,6 +8,7 @@ from app.services.blockchain import (
     _decode_transfer_log,
     _format_token_amount,
     _quantity,
+    _resolve_network,
     inspect_public_transaction,
 )
 
@@ -25,6 +26,20 @@ def test_requires_rpc_configuration(monkeypatch):
     valid_hash = "0x" + "a" * 64
     with pytest.raises(BlockchainConfigurationError):
         asyncio.run(inspect_public_transaction(valid_hash))
+
+
+def test_resolves_supported_network_and_expected_chain_id(monkeypatch):
+    monkeypatch.setenv("BSC_RPC_URL", "https://rpc.example")
+    assert _resolve_network("bsc") == ("bsc", "https://rpc.example", 56)
+    with pytest.raises(ValueError):
+        _resolve_network("unknown-chain")
+
+
+def test_requires_network_specific_rpc(monkeypatch):
+    monkeypatch.delenv("POLYGON_RPC_URL", raising=False)
+    monkeypatch.delenv("EVM_RPC_URL", raising=False)
+    with pytest.raises(BlockchainConfigurationError):
+        _resolve_network("polygon")
 
 
 def test_hex_quantity_conversion():
