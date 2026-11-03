@@ -82,3 +82,15 @@ def test_extract_deduplicates_same_balance_change():
         }],
     }
     assert len(_extract_payments([operation])) == 1
+
+
+def test_ignore_self_directed_path_payment():
+    payments = _extract_payments([{
+        "type": "path_payment_strict_send",
+        "from": "G_SAME",
+        "to": "G_SAME",
+        "amount": "1",
+        "asset_type": "native",
+        "source_account": "G_SAME",
+    }])
+    assert payments == []
