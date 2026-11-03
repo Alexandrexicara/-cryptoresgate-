@@ -4,7 +4,7 @@ import hashlib
 import time
 import psycopg
 from fastapi import APIRouter, Header, HTTPException
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field
 from typing import Literal
 from urllib.parse import urlparse
 
