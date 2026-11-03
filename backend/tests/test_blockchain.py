@@ -337,8 +337,54 @@ def test_retries_missing_historical_receipt_on_fallback_rpc(monkeypatch):
     assert len(receipt_calls) == 2
 
 
+def test_uses_blockscout_to_decode_historical_token_transfer_when_rpc_receipt_is_missing(monkeypatch):
+    import app.services.blockchain as blockchain
+
+    tx_hash = "0x" + "f" * 64
+    contract = "0x" + "a" * 40
+    sender = "0x" + "1" * 40
+    recipient = "0x" + "2" * 40
+
+    async def blockscout_fallback(requested_hash):
+        assert requested_hash == tx_hash
+        return {
+            "hash": tx_hash,
+            "result": "success",
+            "block_number": 256,
+            "gas_used": "63197",
+            "token_transfers": [{
+                "type": "token_transfer",
+                "token": {"address_hash": contract, "symbol": "USDT", "decimals": "6"},
+                "from": {"hash": sender},
+                "to": {"hash": recipient},
+                "total": {"value": "9996000000", "decimals": "6"},
+            }],
+        }
+
+    monkeypatch.setenv("POLYGON_RPC_URL", "https://polygon.example")
+    monkeypatch.setattr(blockchain.httpx, "AsyncClient", _FakeRPCClient)
+    monkeypatch.setattr(blockchain, "_fetch_blockscout_transaction", blockscout_fallback)
+    result = asyncio.run(blockchain.inspect_public_transaction(tx_hash, network="polygon"))
+
+    assert result["status"] == "success"
+    assert result["classification"] == "confirmed_transfer_recipient_credit_unverifiable"
+    assert result["receipt_source"] == "blockscout"
+    assert result["gas_used"] == 63197
+    assert result["token_transfer_count"] == 1
+    transfer = result["token_transfers"][0]
+    assert transfer["symbol"] == "USDT"
+    assert transfer["amount"] == "9996"
+    assert transfer["from_address"] == sender
+    assert transfer["to_address"] == recipient
+
+
 def test_mined_transaction_without_any_receipt_is_unknown_not_pending(monkeypatch):
     import app.services.blockchain as blockchain
+
+    async def no_blockscout_result(_tx_hash):
+        return None
+
+    monkeypatch.setattr(blockchain, "_fetch_blockscout_transaction", no_blockscout_result)
 
     class MinedWithoutReceiptClient(_FakeRPCClient):
         async def post(self, url, json, headers):
