@@ -46,24 +46,25 @@ def test_extract_soroban_asset_balance_changes():
                 "asset_type": "credit_alphanum4",
                 "asset_code": "KALE",
                 "asset_issuer": "G_ISSUER",
-                "to": "G_DESTINATION",
+                "to": "G_MINTED",
                 "amount": "1.25",
             },
             {
-                "type": "burn",
+                "type": "transfer",
                 "asset_type": "credit_alphanum4",
                 "asset_code": "KALE",
                 "asset_issuer": "G_ISSUER",
-                "to": "G_BURN",
+                "from": "G_SOURCE",
+                "to": "G_DESTINATION",
                 "amount": "0.5",
             },
         ],
     }])
     assert len(payments) == 1
-    assert payments[0]["operation_type"] == "invoke_host_function:mint"
+    assert payments[0]["operation_type"] == "invoke_host_function:transfer"
     assert payments[0]["to_address"] == "G_DESTINATION"
     assert payments[0]["asset_code"] == "KALE"
-    assert payments[0]["amount"] == "1.25"
+    assert payments[0]["amount"] == "0.5"
 
 
 def test_extract_deduplicates_same_balance_change():
