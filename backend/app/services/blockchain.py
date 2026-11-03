@@ -145,6 +145,22 @@ def _format_token_amount(raw: str, decimals: int | None) -> str | None:
         return None
 
 
+async def _fetch_blockscout_transaction(tx_hash: str) -> dict[str, Any] | None:
+    """Best-effort read-only explorer fallback when public RPCs omit old receipts."""
+    timeout = httpx.Timeout(10.0, connect=5.0)
+    try:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            response = await client.get(f"https://eth.blockscout.com/api/v2/transactions/{tx_hash}")
+            if response.status_code != 200:
+                return None
+            payload = response.json()
+    except (httpx.HTTPError, ValueError):
+        return None
+    if not isinstance(payload, dict) or str(payload.get("hash", "")).lower() != tx_hash.lower():
+        return None
+    return payload
+
+
 async def inspect_public_transaction(tx_hash: str, network: str | None = None) -> dict[str, Any]:
     """Read-only EVM lookup including standard ERC-20 Transfer receipt logs."""
     if not _HASH_RE.fullmatch(tx_hash):
@@ -215,11 +231,16 @@ async def inspect_public_transaction(tx_hash: str, network: str | None = None) -
 
         block_number = _quantity(tx.get("blockNumber"))
         # A transaction with a block number is mined. If every RPC omits its
-        # receipt, report unknown rather than incorrectly calling it pending.
+        # receipt, consult a read-only explorer before leaving the result unknown.
+        explorer_data = None
         status = "pending" if block_number is None else "unknown"
         if isinstance(receipt, dict):
             receipt_status = receipt.get("status")
             status = "success" if receipt_status == "0x1" else "failed" if receipt_status == "0x0" else "unknown"
+        elif block_number is not None:
+            explorer_data = await _fetch_blockscout_transaction(tx_hash)
+            if explorer_data and explorer_data.get("result") in {"success", "error"}:
+                status = "success" if explorer_data["result"] == "success" else "failed"
         latest_number = _quantity(latest_block)
         confirmations = max(0, latest_number - block_number + 1) if latest_number is not None and block_number is not None else 0
 
@@ -232,6 +253,44 @@ async def inspect_public_transaction(tx_hash: str, network: str | None = None) -
                         transfer = _decode_transfer_log(log)
                         if transfer:
                             transfers.append(transfer)
+
+        # Blockscout supplies decoded ERC-20 transfer records when an RPC
+        # provider cannot serve a historical receipt. Keep this fallback read-only.
+        if status == "success" and not isinstance(receipt, dict) and isinstance(explorer_data, dict):
+            for item in explorer_data.get("token_transfers") or []:
+                if not isinstance(item, dict) or item.get("type") != "token_transfer":
+                    continue
+                token = item.get("token") or {}
+                total = item.get("total") or {}
+                sender = (item.get("from") or {}).get("hash")
+                recipient = (item.get("to") or {}).get("hash")
+                contract = token.get("address_hash")
+                raw_amount = total.get("value")
+                decimals_value = total.get("decimals", token.get("decimals"))
+                try:
+                    decimals = int(decimals_value) if decimals_value is not None else None
+                except (TypeError, ValueError):
+                    decimals = None
+                if (
+                    not isinstance(contract, str) or not _ADDRESS_RE.fullmatch(contract)
+                    or not isinstance(sender, str) or not _ADDRESS_RE.fullmatch(sender)
+                    or not isinstance(recipient, str) or not _ADDRESS_RE.fullmatch(recipient)
+                    or raw_amount is None
+                ):
+                    continue
+                is_burn = _is_burn_address(recipient)
+                raw_text = str(raw_amount)
+                transfers.append({
+                    "token_contract": contract.lower(),
+                    "from_address": sender.lower(),
+                    "to_address": recipient.lower(),
+                    "amount_raw": raw_text,
+                    "symbol": token.get("symbol"),
+                    "decimals": decimals,
+                    "amount": _format_token_amount(raw_text, decimals),
+                    "destination_is_burn_address": is_burn,
+                    "destination_type": "burn_address" if is_burn else "standard_address",
+                })
 
         # Token metadata is best-effort: a non-standard token must not break the
         # transaction lookup. All calls remain read-only eth_call requests.
@@ -313,7 +372,12 @@ async def inspect_public_transaction(tx_hash: str, network: str | None = None) -
         "from_address": tx.get("from"),
         "to_address": tx.get("to"),
         "value_wei": _quantity(tx.get("value")),
-        "gas_used": _quantity(receipt.get("gasUsed")) if isinstance(receipt, dict) else None,
+        "gas_used": (
+            _quantity(receipt.get("gasUsed")) if isinstance(receipt, dict)
+            else int(explorer_data["gas_used"]) if isinstance(explorer_data, dict) and str(explorer_data.get("gas_used", "")).isdigit()
+            else None
+        ),
+        "receipt_source": "rpc" if isinstance(receipt, dict) else "blockscout" if isinstance(explorer_data, dict) else None,
         "token_transfers": transfers,
         "token_transfer_count": len(transfers),
         "non_burn_token_transfer_count": len(non_burn_transfers),
