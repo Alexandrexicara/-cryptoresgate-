@@ -1,7 +1,6 @@
 import asyncio
 import os
 import re
-from decimal import Decimal, InvalidOperation
 from typing import Any
 
 import httpx
@@ -64,7 +63,7 @@ def _decode_transfer_log(log: dict[str, Any]) -> dict[str, Any] | None:
     contract = log.get("address")
     if (
         not isinstance(topics, list)
-        or len(topics) < 3
+        or len(topics) != 3
         or str(topics[0]).lower() != _TRANSFER_TOPIC
         or not isinstance(data, str)
         or not re.fullmatch(r"0x[0-9a-fA-F]{64}", data)
@@ -104,12 +103,19 @@ def _decode_abi_string(value: str) -> str | None:
 
 
 def _format_token_amount(raw: str, decimals: int | None) -> str | None:
+    """Format uint256 token amounts exactly, without floating-point rounding."""
     if decimals is None or decimals < 0 or decimals > 255:
         return None
     try:
-        amount = Decimal(raw) / (Decimal(10) ** decimals)
-        return format(amount, "f")
-    except (InvalidOperation, ValueError):
+        amount = int(raw)
+        if amount < 0:
+            return None
+        if decimals == 0:
+            return str(amount)
+        whole, fraction = divmod(amount, 10 ** decimals)
+        fractional_text = str(fraction).rjust(decimals, "0").rstrip("0")
+        return f"{whole}.{fractional_text}" if fractional_text else str(whole)
+    except (TypeError, ValueError):
         return None
 
 
