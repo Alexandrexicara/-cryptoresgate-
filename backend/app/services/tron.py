@@ -17,6 +17,11 @@ def _hex_int(value: Any) -> int | None:
     except ValueError: return None
     return None
 
+def _is_burn(address: Any) -> bool:
+    if not isinstance(address,str): return False
+    normalized=address.lower().removeprefix("0x")
+    return normalized in {"41"+"0"*40,"0"*40} or normalized.endswith("dead")
+
 def _decode_trc20(log: dict[str,Any]) -> dict[str,Any] | None:
     topics=log.get("topics") or []
     data=log.get("data") or ""
@@ -25,7 +30,7 @@ def _decode_trc20(log: dict[str,Any]) -> dict[str,Any] | None:
     if not re.fullmatch(r"(?:0x)?[0-9a-fA-F]{64}",str(data)): return None
     sender=str(topics[1])[-40:].lower(); recipient=str(topics[2])[-40:].lower()
     return {"token_contract":log.get("address"),"from_address_hex":"41"+sender,
-            "to_address_hex":"41"+recipient,"amount_raw":str(int(str(data).removeprefix("0x"),16))}
+            "to_address_hex":"41"+recipient,"amount_raw":str(int(str(data).removeprefix("0x"),16)),\n            "destination_is_burn_address":_is_burn("41"+recipient)}
 
 async def inspect_tron_transaction(txid: str) -> dict[str,Any]:
     if not _HASH_RE.fullmatch(txid):
@@ -67,5 +72,5 @@ async def inspect_tron_transaction(txid: str) -> dict[str,Any]:
                     else "successful_transaction_no_supported_transfer_detected")
     return {"found":True,"network":"tron","transaction_hash":txid,"status":status,
             "block_number":info.get("blockNumber"),"native_transfers":native,"token_transfers":tokens,
-            "token_transfer_count":len(tokens),"classification":classification,"recovery_candidate":False,
-            "notice":"Consulta pública somente leitura. Transferência confirmada não comprova crédito interno em exchange nem possibilidade de recuperação. Endereços hexadecimais TRON são apresentados sem conversão Base58."}
+            "token_transfer_count":len(tokens),"burn_transfer_count":len(burn_native)+len(burn_tokens),"classification":classification,"recovery_candidate":False,
+            "notice":("Destino de queima identificado; não classificar como ativo perdido ou recuperável." if classification=="confirmed_burn_destination_not_recoverable" else "Consulta pública somente leitura. Transferência confirmada não comprova crédito interno em exchange nem possibilidade de recuperação. Endereços hexadecimais TRON são apresentados sem conversão Base58.")}
