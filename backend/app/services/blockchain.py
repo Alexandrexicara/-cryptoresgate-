@@ -254,10 +254,11 @@ async def inspect_public_transaction(tx_hash: str, network: str | None = None) -
         "classification": (
             "failed_on_chain" if status == "failed"
             else "pending_confirmation" if status == "pending"
-            else "confirmed_transfer_requires_recipient_verification" if status == "success" and transfers
+            else "confirmed_transfer_recipient_credit_unverifiable" if status == "success" and transfers
             else "successful_transaction_no_supported_token_transfer_detected" if status == "success"
             else "unknown"
         ),
+        "recipient_credit_verification_required": bool(status == "success" and transfers),
         "recovery_candidate": False,
         "notice": (
             "A transação falhou na rede; não há transferência confirmada neste recibo."
