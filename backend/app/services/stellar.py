@@ -73,7 +73,9 @@ def _extract_payments(operations: list[dict[str, Any]]) -> list[dict[str, Any]]:
         # Soroban contract invocations can move assets without being a classic
         # payment operation. Horizon exposes these movements as balance changes.
         for change in op.get("asset_balance_changes") or []:
-            if not isinstance(change, dict) or change.get("type") == "burn":
+            # Mint/burn events are supply/accounting changes, not user sends.
+            # Only balance changes explicitly marked as transfer/trade qualify.
+            if not isinstance(change, dict) or change.get("type") not in {"transfer", "trade"}:
                 continue
             add_payment(
                 f"{op_type}:{change.get('type') or 'balance_change'}",
