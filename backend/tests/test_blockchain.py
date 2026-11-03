@@ -163,6 +163,9 @@ def test_inspects_confirmed_transaction_and_decodes_token_transfer(monkeypatch):
     assert result["found"] is True
     assert result["network"] == "polygon"
     assert result["status"] == "success"
+    assert result["classification"] == "confirmed_transfer_recipient_credit_unverifiable"
+    assert result["recipient_credit_verification_required"] is True
+    assert result["recovery_candidate"] is False
     assert result["block_number"] == 256
     assert result["confirmations"] == 6
     assert result["gas_used"] == 21000
