@@ -301,3 +301,25 @@ def test_classifies_transaction_without_receipt_as_pending(monkeypatch):
     assert result["classification"] == "pending_confirmation"
     assert result["recipient_credit_verification_required"] is False
     assert result["recovery_candidate"] is False
+
+
+def test_burn_only_token_transfer_is_not_a_recovery_candidate(monkeypatch):
+    import app.services.blockchain as blockchain
+
+    class BurnTransferClient(_FakeRPCClient):
+        async def post(self, url, json, headers):
+            response = await super().post(url, json, headers)
+            if json["method"] == "eth_getTransactionReceipt":
+                response.payload["result"]["logs"][0]["topics"][2] = "0x" + "0" * 64
+            return response
+
+    monkeypatch.setenv("POLYGON_RPC_URL", "https://polygon.example")
+    monkeypatch.setattr(blockchain.httpx, "AsyncClient", BurnTransferClient)
+    result = asyncio.run(blockchain.inspect_public_transaction("0x" + "9" * 64, network="polygon"))
+
+    assert result["classification"] == "confirmed_burn_destination_not_recoverable"
+    assert result["burn_transfer_count"] == 1
+    assert result["non_burn_token_transfer_count"] == 0
+    assert result["recipient_credit_verification_required"] is False
+    assert result["recovery_candidate"] is False
+    assert "queima" in result["notice"].lower()
