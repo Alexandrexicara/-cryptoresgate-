@@ -26,8 +26,9 @@ _NETWORKS = {
     "base": ("BASE_RPC_URL", 8453, "https://base-rpc.publicnode.com"),
 }
 
-# Public, read-only fallbacks are used only when the selected RPC fails.
+# Public, read-only fallbacks also retry historical receipts when an RPC returns null.
 _RPC_FALLBACKS = {
+    "ethereum": ("https://eth.llamarpc.com", "https://1rpc.io/eth"),
     "bsc": ("https://bsc-dataseed.bnbchain.org", "https://bsc-dataseed-public.bnbchain.org"),
     "polygon": ("https://polygon-rpc.com",),
     "arbitrum": ("https://arb1.arbitrum.io/rpc",),
@@ -156,6 +157,7 @@ async def inspect_public_transaction(tx_hash: str, network: str | None = None) -
         async def rpc(method: str, params: list[Any]) -> Any:
             urls = list(dict.fromkeys((rpc_url, *_RPC_FALLBACKS.get(network_name, ()))))
             last_error: Exception | None = None
+            missing_receipt = False
             for candidate_url in urls:
                 try:
                     response = await client.post(
@@ -171,10 +173,18 @@ async def inspect_public_transaction(tx_hash: str, network: str | None = None) -
                     if payload.get("error"):
                         last_error = BlockchainProviderError("O provedor RPC recusou a consulta.")
                         continue
-                    return payload.get("result")
+                    result = payload.get("result")
+                    # Some public RPCs return null for old receipts even when the
+                    # transaction is mined. Try the other read-only providers.
+                    if result is None and method == "eth_getTransactionReceipt":
+                        missing_receipt = True
+                        continue
+                    return result
                 except (httpx.HTTPError, ValueError) as exc:
                     last_error = exc
                     continue
+            if missing_receipt:
+                return None
             raise BlockchainProviderError(
                 "Não foi possível consultar os provedores RPC públicos desta rede."
             ) from last_error
@@ -203,12 +213,13 @@ async def inspect_public_transaction(tx_hash: str, network: str | None = None) -
         if not isinstance(tx, dict):
             raise BlockchainProviderError("O provedor RPC retornou dados de transação inválidos.")
 
-        status = "pending"
+        block_number = _quantity(tx.get("blockNumber"))
+        # A transaction with a block number is mined. If every RPC omits its
+        # receipt, report unknown rather than incorrectly calling it pending.
+        status = "pending" if block_number is None else "unknown"
         if isinstance(receipt, dict):
             receipt_status = receipt.get("status")
             status = "success" if receipt_status == "0x1" else "failed" if receipt_status == "0x0" else "unknown"
-
-        block_number = _quantity(tx.get("blockNumber"))
         latest_number = _quantity(latest_block)
         confirmations = max(0, latest_number - block_number + 1) if latest_number is not None and block_number is not None else 0
 
@@ -313,6 +324,8 @@ async def inspect_public_transaction(tx_hash: str, network: str | None = None) -
             if status == "failed"
             else "A transação ainda não foi confirmada. Isso não prova perda de ativos."
             if status == "pending"
+            else "A transação já consta em um bloco, mas os RPCs consultados não retornaram o recibo. Não é possível confirmar as transferências nesta consulta; tente novamente."
+            if status == "unknown"
             else "O destino identificado é um endereço de queima. A transação não deve ser classificada como ativo recuperável."
             if status == "success" and not recipient_credit_verification_required and (burn_transfer_count or native_to_burn)
             else "Transferência nativa ou de token confirmada na blockchain. Isso não comprova crédito interno em exchange nem possibilidade de recuperação; é necessária confirmação do destinatário."
