@@ -54,6 +54,14 @@ def _instructions(transaction: dict[str, Any]) -> list[dict[str, Any]]:
     return result
 
 
+def _token_transfer_operations(transaction: dict[str, Any]) -> int:
+    return sum(
+        1 for ix in _instructions(transaction)
+        if isinstance(ix.get("parsed"), dict)
+        and ix["parsed"].get("type") in {"transfer", "transferChecked"}
+    )
+
+
 def _burn_operations(transaction: dict[str, Any]) -> int:
     return sum(
         1 for ix in _instructions(transaction)
@@ -115,7 +123,7 @@ async def inspect_solana_transaction(signature: str) -> dict[str, Any]:
         classification = "failed_on_chain"
     elif status == "pending":
         classification = "pending_confirmation"
-    elif burn_count and not native_transfers and not received_tokens:
+    elif burn_count and token_transfer_count == 0 and not native_transfers:
         classification = "confirmed_burn_destination_not_recoverable"
     elif token_deltas or native_transfers:
         classification = "confirmed_transfer_requires_recipient_verification"
@@ -130,6 +138,6 @@ async def inspect_solana_transaction(signature: str) -> dict[str, Any]:
         "found": True, "network": "solana", "transaction_hash": signature, "status": status,
         "slot": tx.get("slot"), "fee_lamports": meta.get("fee"), "error": meta.get("err"),
         "token_balance_changes": token_deltas, "native_transfers": native_transfers,
-        "burn_operation_count": burn_count, "classification": classification,
+        "burn_operation_count": burn_count, "token_transfer_operation_count": token_transfer_count, "classification": classification,
         "recovery_candidate": False, "notice": notice,
     }
