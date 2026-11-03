@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CryptoResgate · Admin</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#07111f;color:#eaf1fa;font:14px Inter,system-ui,sans-serif}header{padding:22px 5vw;border-bottom:1px solid #ffffff20;display:flex;justify-content:space-between;align-items:center}h1{font-size:20px;margin:0;color:#54dfbb}main{max-width:1200px;margin:32px auto;padding:0 20px}.login,.box,.metric{background:#102238;border:1px solid #ffffff18;border-radius:14px;padding:20px}input,button{padding:12px;border-radius:8px;border:1px solid #ffffff30;background:#071421;color:white}button{background:#43d1ad;color:#062018;font-weight:800;cursor:pointer}input{width:min(420px,100%)}.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:18px 0}.metric b{display:block;font-size:26px;color:#55dfbb;margin-top:8px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}.box{overflow:auto;margin-bottom:16px}table{width:100%;border-collapse:collapse;min-width:600px}td,th{text-align:left;padding:10px;border-bottom:1px solid #ffffff18;font-size:12px}th{color:#55dfbb}small,.muted{color:#9db0c4}.error{color:#ff9ca9;margin:12px 0}@media(max-width:800px){.grid{grid-template-columns:1fr}}
+</style></head><body><header><h1>CRYPTORESGATE / ADMIN</h1><a href="/" style="color:#9db0c4">Abrir site</a></header><main>
+<section class="login"><h2>Acesso administrativo</h2><p class="muted">Informe a chave configurada no ambiente seguro do servidor.</p><input id="key" type="password" placeholder="Chave administrativa" autocomplete="current-password"> <button id="enter">Entrar</button><div id="error" class="error"></div></section>
+<section id="dashboard" hidden><div class="metrics" id="metrics"></div><div class="box"><h2>Casos cadastrados</h2><div id="cases"></div></div><div class="box"><h2>Auditoria recente</h2><div id="events"></div></div><p id="monitor" class="muted"></p><button id="refresh">Atualizar painel</button></section></main>
+<script>
+const API=(location.hostname==='localhost'?'http://localhost:8000':'https://cryptoresgate.onrender.com');
+const keyEl=document.querySelector('#key'),err=document.querySelector('#error');
+function esc(v){return String(v??'—').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+async function load(){err.textContent='';try{const r=await fetch(API+'/api/v1/admin/overview',{headers:{'X-Operator-Key':keyEl.value}});const d=await r.json();if(!r.ok)throw Error(d.detail||'Falha no acesso');document.querySelector('#dashboard').hidden=false;document.querySelector('.login').hidden=true;
+document.querySelector('#metrics').innerHTML=Object.entries(d.totals).map(([k,v])=>'<div class="metric">'+esc(k.replace('_',' '))+'<b>'+esc(v)+'</b></div>').join('');
+document.querySelector('#cases').innerHTML='<table><thead><tr><th>Referência</th><th>Status</th><th>Rede</th><th>Hash</th><th>Problema</th><th>Cadastro</th></tr></thead><tbody>'+d.cases.map(x=>'<tr><td>'+esc(x.reference)+'</td><td>'+esc(x.status)+'</td><td>'+esc(x.network)+'</td><td>'+esc(x.transaction_hash)+'</td><td>'+esc(x.issue)+'</td><td>'+esc(x.created_at)+'</td></tr>').join('')+'</tbody></table>';
+document.querySelector('#events').innerHTML='<table><thead><tr><th>Evento</th><th>Ator</th><th>Data</th></tr></thead><tbody>'+d.events.map(x=>'<tr><td>'+esc(x.action)+'</td><td>'+esc(x.actor)+'</td><td>'+esc(x.created_at)+'</td></tr>').join('')+'</tbody></table>';
+document.querySelector('#monitor').textContent=d.monitoring.note;
+}catch(e){err.textContent=e.message;}}
+document.querySelector('#enter').onclick=load;document.querySelector('#refresh').onclick=load;keyEl.addEventListener('keydown',e=>{if(e.key==='Enter')load()});
+</script></body></html>
