@@ -19,12 +19,12 @@ _HASH_RE = re.compile(r"^0x[a-fA-F0-9]{64}$")
 _ADDRESS_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")
 _TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 _NETWORKS = {
-    "ethereum": ("ETHEREUM_RPC_URL", 1),
-    "bsc": ("BSC_RPC_URL", 56),
-    "polygon": ("POLYGON_RPC_URL", 137),
-    "arbitrum": ("ARBITRUM_RPC_URL", 42161),
-    "optimism": ("OPTIMISM_RPC_URL", 10),
-    "base": ("BASE_RPC_URL", 8453),
+    "ethereum": ("ETHEREUM_RPC_URL", 1, "https://ethereum-rpc.publicnode.com"),
+    "bsc": ("BSC_RPC_URL", 56, "https://bsc-rpc.publicnode.com"),
+    "polygon": ("POLYGON_RPC_URL", 137, "https://polygon-bor-rpc.publicnode.com"),
+    "arbitrum": ("ARBITRUM_RPC_URL", 42161, "https://arbitrum-one-rpc.publicnode.com"),
+    "optimism": ("OPTIMISM_RPC_URL", 10, "https://optimism-rpc.publicnode.com"),
+    "base": ("BASE_RPC_URL", 8453, "https://base-rpc.publicnode.com"),
 }
 
 
@@ -35,10 +35,12 @@ def _resolve_network(requested: str | None) -> tuple[str, str, int | None]:
         url = os.getenv("EVM_RPC_URL", "").strip()
         expected_chain_id = None
     elif name in _NETWORKS:
-        env_name, expected_chain_id = _NETWORKS[name]
+        env_name, expected_chain_id, public_default = _NETWORKS[name]
         url = os.getenv(env_name, "").strip()
         if not url and (name == configured_default or (name == "ethereum" and configured_default == "evm")):
             url = os.getenv("EVM_RPC_URL", "").strip()
+        if not url:
+            url = public_default
     else:
         raise ValueError("Rede EVM não suportada. Use ethereum, bsc, polygon, arbitrum, optimism ou base.")
     if not url:
