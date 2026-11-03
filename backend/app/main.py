@@ -10,6 +10,8 @@ from app.routes.blockchain import router as blockchain_router
 from app.routes.bitcoin import router as bitcoin_router
 from app.routes.communications import router as communications_router
 from app.routes.stellar import router as stellar_router
+from app.routes.solana import router as solana_router
+from app.routes.tron import router as tron_router
 
 app = FastAPI(
     title="CryptoResgate API",
@@ -48,6 +50,8 @@ app.include_router(blockchain_router)
 app.include_router(bitcoin_router)
 app.include_router(communications_router)
 app.include_router(stellar_router)
+app.include_router(solana_router)
+app.include_router(tron_router)
 
 
 @app.get("/health")
