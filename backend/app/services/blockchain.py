@@ -26,6 +26,15 @@ _NETWORKS = {
     "base": ("BASE_RPC_URL", 8453, "https://base-rpc.publicnode.com"),
 }
 
+# Public, read-only fallbacks are used only when the selected RPC fails.
+_RPC_FALLBACKS = {
+    "bsc": ("https://bsc-dataseed.bnbchain.org", "https://bsc-dataseed-public.bnbchain.org"),
+    "polygon": ("https://polygon-rpc.com",),
+    "arbitrum": ("https://arb1.arbitrum.io/rpc",),
+    "optimism": ("https://mainnet.optimism.io",),
+    "base": ("https://mainnet.base.org",),
+}
+
 
 def _resolve_network(requested: str | None) -> tuple[str, str, int | None]:
     configured_default = os.getenv("EVM_NETWORK", "evm").strip().lower() or "evm"
@@ -145,21 +154,30 @@ async def inspect_public_transaction(tx_hash: str, network: str | None = None) -
     timeout = httpx.Timeout(12.0, connect=5.0)
     async with httpx.AsyncClient(timeout=timeout) as client:
         async def rpc(method: str, params: list[Any]) -> Any:
-            try:
-                response = await client.post(
-                    rpc_url,
-                    json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params},
-                    headers={"Content-Type": "application/json"},
-                )
-                response.raise_for_status()
-                payload = response.json()
-            except (httpx.HTTPError, ValueError) as exc:
-                raise BlockchainProviderError("Não foi possível consultar o explorador RPC configurado.") from exc
-            if not isinstance(payload, dict):
-                raise BlockchainProviderError("O provedor RPC retornou uma resposta inválida.")
-            if payload.get("error"):
-                raise BlockchainProviderError("O provedor RPC recusou a consulta.")
-            return payload.get("result")
+            urls = list(dict.fromkeys((rpc_url, *_RPC_FALLBACKS.get(network_name, ()))))
+            last_error: Exception | None = None
+            for candidate_url in urls:
+                try:
+                    response = await client.post(
+                        candidate_url,
+                        json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params},
+                        headers={"Content-Type": "application/json"},
+                    )
+                    response.raise_for_status()
+                    payload = response.json()
+                    if not isinstance(payload, dict):
+                        last_error = BlockchainProviderError("O provedor RPC retornou uma resposta inválida.")
+                        continue
+                    if payload.get("error"):
+                        last_error = BlockchainProviderError("O provedor RPC recusou a consulta.")
+                        continue
+                    return payload.get("result")
+                except (httpx.HTTPError, ValueError) as exc:
+                    last_error = exc
+                    continue
+            raise BlockchainProviderError(
+                "Não foi possível consultar os provedores RPC públicos desta rede."
+            ) from last_error
 
         tx, receipt = await asyncio.gather(
             rpc("eth_getTransactionByHash", [tx_hash]),
