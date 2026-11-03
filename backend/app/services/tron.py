@@ -60,15 +60,21 @@ async def inspect_tron_transaction(txid: str) -> dict[str, Any]:
     timeout = httpx.Timeout(18.0, connect=7.0)
     async with httpx.AsyncClient(timeout=timeout) as client:
         async def post(path: str) -> dict[str, Any]:
-            try:
-                response = await client.post(f"{BASE_URL}/wallet/{path}", json={"value": txid})
-                response.raise_for_status()
-                data = response.json()
-            except (httpx.HTTPError, ValueError) as exc:
-                raise TronProviderError("Não foi possível consultar o nó público TRON.") from exc
-            if not isinstance(data, dict):
-                raise TronProviderError("Resposta inválida do nó TRON.")
-            return data
+            last_error: Exception | None = None
+            for attempt in range(2):
+                try:
+                    response = await client.post(f"{BASE_URL}/wallet/{path}", json={"value": txid})
+                    response.raise_for_status()
+                    data = response.json()
+                    if not isinstance(data, dict):
+                        raise TronProviderError("Resposta inválida do nó TRON.")
+                    return data
+                except (httpx.HTTPError, ValueError) as exc:
+                    last_error = exc
+                    if attempt == 0:
+                        await asyncio.sleep(0.35)
+                        continue
+            raise TronProviderError("Não foi possível consultar o nó público TRON após nova tentativa.") from last_error
         tx, info = await asyncio.gather(
             post("gettransactionbyid"), post("gettransactioninfobyid")
         )
