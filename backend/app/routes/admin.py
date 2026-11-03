@@ -149,6 +149,7 @@ import asyncio
 from urllib.parse import quote
 import httpx
 from app.routes.discovery import _inspect_address, NETWORKS as DISCOVERY_NETWORKS
+from app.routes.trace import _extract_movements
 
 @router.post("/monitor/run")
 async def run_monitor(x_operator_key: str | None = Header(default=None)):
@@ -204,8 +205,21 @@ async def run_monitor(x_operator_key: str | None = Header(default=None)):
     wallet_saved=0
     with _db() as conn, conn.cursor() as cur:
         for case_id,ref,network,result in results:
+            record={"source":"scheduled_public_chain_monitor","reference":ref,"network":network,**result}
+            if result.get("status") == "checked" and isinstance(result.get("data"),dict):
+                chain_data=result["data"]
+                movements=_extract_movements(network,chain_data)
+                record["automatic_trace"]={
+                    "enabled":True,
+                    "movement_count":len(movements),
+                    "movements":movements,
+                    "transaction_status":chain_data.get("status","unknown"),
+                    "classification":"movement_path_extracted" if movements else "no_supported_movement_decoded",
+                    "final_destination_verified":False,
+                    "loss_proven":False
+                }
             cur.execute("""INSERT INTO case_evidence(case_id,evidence_type,content,is_public)
-                           VALUES (%s,'analysis',%s::jsonb,TRUE)""",(case_id,__import__("json").dumps({"source":"scheduled_public_chain_monitor","reference":ref,"network":network,**result})))
+                           VALUES (%s,'analysis',%s::jsonb,TRUE)""",(case_id,__import__("json").dumps(record)))
             saved+=1
         for case_id,ref,address,chain_id,network,result in wallet_results:
             content={"source":"scheduled_verified_wallet_discovery","reference":ref,
