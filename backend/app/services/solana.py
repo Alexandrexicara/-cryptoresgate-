@@ -57,7 +57,8 @@ def _instructions(transaction: dict[str, Any]) -> list[dict[str, Any]]:
 def _token_transfer_operations(transaction: dict[str, Any]) -> int:
     return sum(
         1 for ix in _instructions(transaction)
-        if isinstance(ix.get("parsed"), dict)
+        if ix.get("program") in {"spl-token", "spl-token-2022"}
+        and isinstance(ix.get("parsed"), dict)
         and ix["parsed"].get("type") in {"transfer", "transferChecked"}
     )
 
@@ -65,7 +66,8 @@ def _token_transfer_operations(transaction: dict[str, Any]) -> int:
 def _burn_operations(transaction: dict[str, Any]) -> int:
     return sum(
         1 for ix in _instructions(transaction)
-        if isinstance(ix.get("parsed"), dict)
+        if ix.get("program") in {"spl-token", "spl-token-2022"}
+        and isinstance(ix.get("parsed"), dict)
         and ix["parsed"].get("type") in {"burn", "burnChecked"}
     )
 
