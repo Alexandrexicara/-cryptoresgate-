@@ -118,7 +118,7 @@ async def inspect_solana_transaction(signature: str) -> dict[str, Any]:
     token_deltas = _token_deltas(meta)
     native_transfers = _parsed_native_transfers(tx)
     burn_count = _burn_operations(tx)
-    received_tokens = any(item["direction"] == "received" for item in token_deltas)
+    token_transfer_count = _token_transfer_operations(tx)
     if status == "failed":
         classification = "failed_on_chain"
     elif status == "pending":
