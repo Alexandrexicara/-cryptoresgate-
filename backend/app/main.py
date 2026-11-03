@@ -88,3 +88,39 @@ def root() -> dict[str, str]:
         "message": "API de triagem; nenhuma movimentação automática está habilitada.",
         "docs": "/docs",
     }
+
+import asyncio
+import httpx
+
+_monitor_task = None
+
+async def _scheduled_case_monitor():
+    """Runs read-only monitoring while the web process is awake."""
+    port=os.getenv("PORT","8000")
+    base=f"http://127.0.0.1:{port}"
+    key=os.getenv("OPERATOR_API_KEY","").strip()
+    if not key:
+        return
+    await asyncio.sleep(30)
+    while True:
+        try:
+            async with httpx.AsyncClient(timeout=90.0) as client:
+                await client.post(base+"/api/v1/admin/monitor/run",
+                                  headers={"X-Operator-Key":key})
+        except Exception:
+            # A later cycle retries; service health must not depend on monitor availability.
+            pass
+        await asyncio.sleep(max(300,int(os.getenv("MONITOR_INTERVAL_SECONDS","900"))))
+
+@app.on_event("startup")
+async def start_scheduled_monitor():
+    global _monitor_task
+    if _monitor_task is None:
+        _monitor_task=asyncio.create_task(_scheduled_case_monitor())
+
+@app.on_event("shutdown")
+async def stop_scheduled_monitor():
+    global _monitor_task
+    if _monitor_task is not None:
+        _monitor_task.cancel()
+        _monitor_task=None
