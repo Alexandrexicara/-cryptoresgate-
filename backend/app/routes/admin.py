@@ -35,11 +35,25 @@ def overview(x_operator_key: str | None = Header(default=None)):
                            WHERE action='scheduled_monitor_completed'
                            ORDER BY created_at DESC LIMIT 1""")
             last_scan=cur.fetchone()
+            cur.execute("""SELECT c.public_id, e.content, e.created_at
+                           FROM case_evidence e JOIN cases c ON c.id=e.case_id
+                           WHERE e.evidence_type='analysis'
+                             AND e.content->>'source'='scheduled_verified_wallet_discovery'
+                             AND e.content->>'status'='inspected'
+                             AND (COALESCE((e.content->>'native_balance_wei')::numeric,0)>0
+                                  OR COALESCE((e.content->>'is_contract')::boolean,FALSE)=TRUE)
+                           ORDER BY e.created_at DESC LIMIT 500""")
+            asset_rows=cur.fetchall()
         def iso(v): return v.isoformat() if v else None
         return {
             "totals":{"cases":totals[0],"submitted":totals[1],"in_review":totals[2],"recovered":totals[3],"closed":totals[4]},
             "cases":[{"reference":r[0],"status":r[1],"network":r[2],"transaction_hash":r[3],"issue":r[4],"created_at":iso(r[5]),"updated_at":iso(r[6])} for r in rows],
             "events":[{"action":e[0],"actor":e[1],"details":e[2],"created_at":iso(e[3])} for e in events],
+            "asset_candidates":[{"case_reference":r[0],"wallet_address":r[1].get("wallet_address"),
+                "network":r[1].get("network"),"native_balance":r[1].get("native_balance"),
+                "asset_unit":r[1].get("native_asset_unit"),"is_contract":r[1].get("is_contract"),
+                "authority_hint":r[1].get("authority_hint"),"checked_at":iso(r[2]),
+                "classification":"possible_candidate_not_confirmed_lost"} for r in asset_rows],
             "monitoring":{"mode":"scheduled_read_only","continuous_scan_enabled":True,
                           "interval_seconds":int(os.getenv("MONITOR_INTERVAL_SECONDS","900")),
                           "last_scan":({"details":last_scan[0],"created_at":iso(last_scan[1])} if last_scan else None),
