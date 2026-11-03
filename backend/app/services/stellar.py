@@ -42,6 +42,10 @@ def _extract_payments(operations: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ) -> None:
         if not destination or amount is None:
             return
+        # A path payment routed back to the same account is an exchange/swap,
+        # not a transfer to another destination for recovery triage.
+        if source and source == destination:
+            return
         code = asset_code or ("XLM" if asset_type == "native" else None)
         key = (destination, str(amount), code or "", asset_issuer or "")
         if key in seen:
