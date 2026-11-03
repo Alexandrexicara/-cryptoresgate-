@@ -21,7 +21,7 @@ _NETWORKS = {
     "ethereum": ("ETHEREUM_RPC_URL", 1, "https://ethereum-rpc.publicnode.com"),
     "bsc": ("BSC_RPC_URL", 56, "https://bsc-rpc.publicnode.com"),
     "polygon": ("POLYGON_RPC_URL", 137, "https://polygon-bor-rpc.publicnode.com"),
-    "arbitrum": ("ARBITRUM_RPC_URL", 42161, "https://arbitrum-one-rpc.publicnode.com"),
+    "arbitrum": ("ARBITRUM_RPC_URL", 42161, "https://arb1.arbitrum.io/rpc"),
     "optimism": ("OPTIMISM_RPC_URL", 10, "https://optimism-rpc.publicnode.com"),
     "base": ("BASE_RPC_URL", 8453, "https://base-rpc.publicnode.com"),
 }
