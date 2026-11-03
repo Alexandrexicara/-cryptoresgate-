@@ -73,6 +73,9 @@ def _decode_transfer_log(log: dict[str, Any]) -> dict[str, Any] | None:
         return None
     if not all(isinstance(topic, str) and re.fullmatch(r"0x[0-9a-fA-F]{64}", topic) for topic in topics[1:3]):
         return None
+    # ABI-encoded address topics are 32 bytes: the leading 12 bytes must be zero.
+    if any(topics[index][2:26] != "0" * 24 for index in (1, 2)):
+        return None
     return {
         "token_contract": contract.lower(),
         "from_address": "0x" + topics[1][-40:].lower(),
