@@ -101,17 +101,20 @@ async def _scan_network(client, network, url, chain_id, blocks_per_network):
             continue
         timestamp = datetime.fromtimestamp(_num(block.get("timestamp")), tz=timezone.utc)
         for tx in block.get("transactions") or []:
-            if not isinstance(tx, dict) or not tx.get("to") or _num(tx.get("value")) <= 0:
+            if not isinstance(tx, dict):
                 continue
-            address = tx["to"].lower()
-            # Because blocks are traversed newest-to-oldest, keep the first
-            # (newest) occurrence for each recipient in this batch.
-            latest_activity.setdefault(address, {
-                "block": expected_number,
-                "timestamp": timestamp.isoformat(),
-                "tx_hash": tx.get("hash"),
-                "from": (tx.get("from") or "").lower(),
-            })
+            # Track both sides of every transaction, including outgoing activity.
+            for address in (tx.get("from"), tx.get("to")):
+                if not isinstance(address, str) or not address.startswith("0x"):
+                    continue
+                address = address.lower()
+                latest_activity.setdefault(address, {
+                    "block": expected_number,
+                    "timestamp": timestamp.isoformat(),
+                    "tx_hash": tx.get("hash"),
+                    "from": (tx.get("from") or "").lower(),
+                    "to": (tx.get("to") or "").lower(),
+                })
 
     symbol = "ETH" if network in ("ethereum", "arbitrum", "optimism", "base") else ("BNB" if network == "bsc" else "POL")
     addresses = list(latest_activity.items())
@@ -137,9 +140,10 @@ async def _scan_network(client, network, url, chain_id, blocks_per_network):
             evidence = {
                 "method": "public_evm_block_history",
                 "chain_id": chain_id,
-                "last_inbound_transaction": activity["tx_hash"],
-                "last_inbound_sender": activity["from"],
-                "age_days_since_latest_observed_inbound": age_days,
+                "last_observed_transaction": activity["tx_hash"],
+                "transaction_from": activity["from"],
+                "transaction_to": activity["to"],
+                "age_days_since_latest_observed_activity": age_days,
                 "history_scan_direction": "newest_to_oldest",
                 "loss_proven": False,
             }
@@ -159,7 +163,8 @@ async def _scan_network(client, network, url, chain_id, blocks_per_network):
                     updated_at=now()
             """, (network,address,symbol,str(wei),activity["block"],last_seen,classification,json.dumps(evidence)))
             saved += 1
-        next_block = start - 1
+        # Never skip a failed block range; retry the same batch next cycle.
+        next_block = cursor if errors else start - 1
         cur.execute("""
             INSERT INTO discovery_scan_state(network,next_block,tip_block,updated_at)
             VALUES (%s,%s,%s,now())
