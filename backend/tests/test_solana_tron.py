@@ -1,6 +1,6 @@
 import pytest
 
-from app.services.solana import _token_deltas, _parsed_native_transfers, _burn_operations, _format_sol, inspect_solana_transaction
+from app.services.solana import _token_deltas, _parsed_native_transfers, _burn_operations, _token_transfer_operations, _format_sol, inspect_solana_transaction
 from app.services.tron import _decode_trc20, _is_burn, _format_trx, inspect_tron_transaction
 
 
@@ -85,3 +85,12 @@ def test_tron_formats_sun_without_float_rounding():
 def test_tron_zero_address_is_burn_but_normal_address_is_not():
     assert _is_burn("41" + "0" * 40)
     assert not _is_burn("41" + "1" * 40)
+
+
+def test_solana_counts_token_transfer_instructions_separately_from_burns():
+    tx = {"transaction": {"message": {"instructions": [
+        {"parsed": {"type": "burn", "info": {}}},
+        {"parsed": {"type": "transferChecked", "info": {}}},
+    ]}}}
+    assert _burn_operations(tx) == 1
+    assert _token_transfer_operations(tx) == 1
