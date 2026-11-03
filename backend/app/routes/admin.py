@@ -31,13 +31,19 @@ def overview(x_operator_key: str | None = Header(default=None)):
             cur.execute("""SELECT action,actor_type,details,created_at FROM audit_events
                            ORDER BY created_at DESC LIMIT 100""")
             events=cur.fetchall()
+            cur.execute("""SELECT details,created_at FROM audit_events
+                           WHERE action='scheduled_monitor_completed'
+                           ORDER BY created_at DESC LIMIT 1""")
+            last_scan=cur.fetchone()
         def iso(v): return v.isoformat() if v else None
         return {
             "totals":{"cases":totals[0],"submitted":totals[1],"in_review":totals[2],"recovered":totals[3],"closed":totals[4]},
             "cases":[{"reference":r[0],"status":r[1],"network":r[2],"transaction_hash":r[3],"issue":r[4],"created_at":iso(r[5]),"updated_at":iso(r[6])} for r in rows],
             "events":[{"action":e[0],"actor":e[1],"details":e[2],"created_at":iso(e[3])} for e in events],
-            "monitoring":{"mode":"dashboard_read_only","continuous_scan_enabled":False,
-                          "note":"Este painel mostra os casos já cadastrados. Monitoramento contínuo ainda requer worker/agendador e fontes de dados configuradas."}
+            "monitoring":{"mode":"scheduled_read_only","continuous_scan_enabled":True,
+                          "interval_seconds":int(os.getenv("MONITOR_INTERVAL_SECONDS","900")),
+                          "last_scan":({"details":last_scan[0],"created_at":iso(last_scan[1])} if last_scan else None),
+                          "note":"Verificação periódica dos hashes cadastrados. Em instâncias gratuitas, o ciclo pausa quando o serviço entra em suspensão."}
         }
     except HTTPException: raise
     except Exception as exc:
