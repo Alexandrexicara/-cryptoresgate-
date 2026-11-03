@@ -1,12 +1,38 @@
 import os
 import hmac
+import hashlib
+import time
 import psycopg
 from fastapi import APIRouter, Header, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, EmailStr
 from typing import Literal
 from urllib.parse import urlparse
 
 router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
+
+
+class AdminLogin(BaseModel):
+    email: str = Field(min_length=5, max_length=160)
+    password: str = Field(min_length=1, max_length=200)
+
+
+def _session_signature(timestamp: str) -> str:
+    secret=os.getenv("ADMIN_SESSION_SECRET","").strip()
+    email=os.getenv("ADMIN_LOGIN_EMAIL","").strip().lower()
+    return hmac.new(secret.encode(), f"{email}:{timestamp}".encode(), hashlib.sha256).hexdigest()
+
+
+@router.post("/login")
+def admin_login(payload: AdminLogin):
+    email=os.getenv("ADMIN_LOGIN_EMAIL","").strip()
+    password=os.getenv("ADMIN_LOGIN_PASSWORD","")
+    secret=os.getenv("ADMIN_SESSION_SECRET","").strip()
+    if not email or not password or not secret:
+        raise HTTPException(status_code=503, detail="Login administrativo não configurado no servidor.")
+    if not hmac.compare_digest(payload.email.strip().lower(), email.lower()) or not hmac.compare_digest(payload.password, password):
+        raise HTTPException(status_code=401, detail="E-mail ou senha incorretos.")
+    timestamp=str(int(time.time()))
+    return {"access_token": f"{timestamp}.{_session_signature(timestamp)}", "token_type":"bearer", "expires_in":43200}
 
 
 class LossAssessment(BaseModel):
@@ -27,16 +53,26 @@ def _db():
         raise HTTPException(status_code=503, detail="Banco de dados não configurado.")
     return psycopg.connect(dsn, connect_timeout=8)
 
-def _auth(key: str | None):
+def _auth(key: str | None, authorization: str | None = None):
     expected=os.getenv("OPERATOR_API_KEY","").strip()
-    if not expected:
-        raise HTTPException(status_code=503, detail="Painel admin ainda não foi ativado: configure OPERATOR_API_KEY no Render.")
-    if not key or not hmac.compare_digest(key, expected):
-        raise HTTPException(status_code=401, detail="Chave administrativa inválida.")
+    if key and expected and hmac.compare_digest(key, expected):
+        return
+    token=(authorization or "").removeprefix("Bearer ").strip()
+    try:
+        timestamp, signature = token.split(".", 1)
+        valid_age=0 <= int(time.time())-int(timestamp) <= 43200
+        valid_sig=hmac.compare_digest(signature, _session_signature(timestamp))
+        if valid_age and valid_sig and os.getenv("ADMIN_SESSION_SECRET","").strip():
+            return
+    except Exception:
+        pass
+    if not expected and not os.getenv("ADMIN_LOGIN_EMAIL"):
+        raise HTTPException(status_code=503, detail="Login administrativo ainda não configurado no Render.")
+    raise HTTPException(status_code=401, detail="Sessão administrativa inválida ou expirada.")
 
 @router.get("/overview")
-def overview(x_operator_key: str | None = Header(default=None)):
-    _auth(x_operator_key)
+def overview(x_operator_key: str | None = Header(default=None), authorization: str | None = Header(default=None)):
+    _auth(x_operator_key, authorization)
     try:
         with _db() as conn, conn.cursor() as cur:
             cur.execute("SELECT count(*), count(*) FILTER (WHERE status='submitted'), count(*) FILTER (WHERE status IN ('triage','under_review')), count(*) FILTER (WHERE status='recovered'), count(*) FILTER (WHERE status='closed') FROM cases")
@@ -93,9 +129,9 @@ def overview(x_operator_key: str | None = Header(default=None)):
 
 @router.post("/cases/{case_reference}/loss-assessment")
 def register_loss_assessment(case_reference: str, payload: LossAssessment,
-                             x_operator_key: str | None = Header(default=None)):
+                             x_operator_key: str | None = Header(default=None), authorization: str | None = Header(default=None)):
     """Only an operator-reviewed external proof can place a case in confirmed-lost list."""
-    _auth(x_operator_key)
+    _auth(x_operator_key, authorization)
     if not payload.operator_verified:
         raise HTTPException(status_code=400, detail="A confirmação exige revisão humana explícita.")
     if not _valid_https_url(payload.evidence_url):
@@ -152,8 +188,8 @@ from app.routes.discovery import _inspect_address, NETWORKS as DISCOVERY_NETWORK
 from app.routes.trace import _extract_movements
 
 @router.post("/monitor/run")
-async def run_monitor(x_operator_key: str | None = Header(default=None)):
-    _auth(x_operator_key)
+async def run_monitor(x_operator_key: str | None = Header(default=None), authorization: str | None = Header(default=None)):
+    _auth(x_operator_key, authorization)
     api_base=os.getenv("PUBLIC_API_BASE_URL","https://cryptoresgate.onrender.com").rstrip("/")
     routes={
         "bitcoin": lambda tx: f"/api/v1/public/bitcoin/transaction/{quote(tx,safe='')}",
