@@ -184,3 +184,13 @@ def test_rejects_rpc_configured_for_wrong_chain(monkeypatch):
     monkeypatch.setattr(blockchain.httpx, "AsyncClient", WrongChainClient)
     with pytest.raises(blockchain.BlockchainProviderError, match="outra rede"):
         asyncio.run(blockchain.inspect_public_transaction("0x" + "c" * 64, network="polygon"))
+
+
+def test_rejects_transfer_topics_with_nonzero_address_padding():
+    malformed_topic = "0x" + "1" * 24 + "2" * 40
+    event = {
+        "address": "0x" + "a" * 40,
+        "topics": [TRANSFER_TOPIC, malformed_topic, "0x" + "0" * 24 + "3" * 40],
+        "data": "0x" + format(1, "064x"),
+    }
+    assert _decode_transfer_log(event) is None
