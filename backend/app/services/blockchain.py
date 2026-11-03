@@ -195,11 +195,15 @@ async def inspect_public_transaction(tx_hash: str, network: str | None = None) -
         # transaction lookup. All calls remain read-only eth_call requests.
         contracts = list(dict.fromkeys(item["token_contract"] for item in transfers))[:100]
         metadata_semaphore = asyncio.Semaphore(10)
+        # Read token metadata at the transaction's block, not at "latest":
+        # upgradeable token contracts can change metadata between blocks.
+        metadata_block = hex(block_number) if block_number is not None else "latest"
+
         async def token_metadata(contract: str) -> tuple[str, dict[str, Any]]:
             async with metadata_semaphore:
                 symbol_result, decimals_result = await asyncio.gather(
-                    rpc("eth_call", [{"to": contract, "data": "0x95d89b41"}, "latest"]),
-                    rpc("eth_call", [{"to": contract, "data": "0x313ce567"}, "latest"]),
+                    rpc("eth_call", [{"to": contract, "data": "0x95d89b41"}, metadata_block]),
+                    rpc("eth_call", [{"to": contract, "data": "0x313ce567"}, metadata_block]),
                     return_exceptions=True,
                 )
             symbol = _decode_abi_string(symbol_result) if isinstance(symbol_result, str) else None
