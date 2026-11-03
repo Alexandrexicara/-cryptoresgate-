@@ -183,6 +183,49 @@ def test_inspects_confirmed_transaction_and_decodes_token_transfer(monkeypatch):
     assert all(call["params"][1] == "0x100" for call in metadata_calls)
 
 
+
+def test_classifies_confirmed_native_transfer_as_unverifiable_at_recipient(monkeypatch):
+    import app.services.blockchain as blockchain
+
+    class NativeTransferClient(_FakeRPCClient):
+        async def post(self, url, json, headers):
+            response = await super().post(url, json, headers)
+            if json["method"] == "eth_getTransactionByHash":
+                response.payload["result"]["value"] = "0xde0b6b3a7640000"
+            if json["method"] == "eth_getTransactionReceipt":
+                response.payload["result"]["logs"] = []
+            return response
+
+    monkeypatch.setenv("POLYGON_RPC_URL", "https://polygon.example")
+    monkeypatch.setattr(blockchain.httpx, "AsyncClient", NativeTransferClient)
+    result = asyncio.run(blockchain.inspect_public_transaction("0x" + "c" * 64, network="polygon"))
+
+    assert result["classification"] == "confirmed_transfer_recipient_credit_unverifiable"
+    assert result["recipient_credit_verification_required"] is True
+    assert result["recovery_candidate"] is False
+    assert result["token_transfer_count"] == 0
+
+
+def test_failed_evm_transaction_is_not_a_recovery_candidate(monkeypatch):
+    import app.services.blockchain as blockchain
+
+    class FailedClient(_FakeRPCClient):
+        async def post(self, url, json, headers):
+            response = await super().post(url, json, headers)
+            if json["method"] == "eth_getTransactionReceipt":
+                response.payload["result"]["status"] = "0x0"
+            return response
+
+    monkeypatch.setenv("POLYGON_RPC_URL", "https://polygon.example")
+    monkeypatch.setattr(blockchain.httpx, "AsyncClient", FailedClient)
+    result = asyncio.run(blockchain.inspect_public_transaction("0x" + "d" * 64, network="polygon"))
+
+    assert result["status"] == "failed"
+    assert result["classification"] == "failed_on_chain"
+    assert result["recipient_credit_verification_required"] is False
+    assert result["recovery_candidate"] is False
+
+
 def test_rejects_rpc_configured_for_wrong_chain(monkeypatch):
     import app.services.blockchain as blockchain
 
