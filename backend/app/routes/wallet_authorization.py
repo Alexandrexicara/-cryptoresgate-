@@ -106,6 +106,13 @@ def _hash(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+def recover_wallet_signer(message: str, signature: str) -> str:
+    """Recover the EVM address that signed an EIP-191 personal_sign message."""
+    return Account.recover_message(
+        encode_defunct(text=message), signature=signature
+    ).lower()
+
+
 @router.post("/cases/{case_reference}/wallet/challenge", status_code=201)
 def create_wallet_challenge(case_reference: str, payload: WalletChallengeRequest) -> dict[str, Any]:
     if payload.chain_id not in SUPPORTED_CHAINS:
@@ -169,9 +176,7 @@ def verify_wallet_challenge(case_reference: str, payload: WalletChallengeVerify)
                     raise HTTPException(status_code=400, detail="Desafio inválido, expirado ou já utilizado.")
                 challenge_id, chain_id, message = challenge
                 try:
-                    recovered = Account.recover_message(
-                        encode_defunct(text=message), signature=payload.signature
-                    ).lower()
+                    recovered = recover_wallet_signer(message, payload.signature)
                 except Exception as exc:
                     raise HTTPException(status_code=400, detail="Assinatura de carteira inválida.") from exc
                 if recovered != payload.wallet_address:
