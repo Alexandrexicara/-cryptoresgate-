@@ -27,8 +27,20 @@ function App(){
   const go=(v)=>{setTab(v);setMenu(false);setError("");setSuccess("");};
   async function submit(e){
     e.preventDefault();setBusy(true);setError("");setSuccess("");
-    try { const data=await request("/api/v1/cases",{method:"POST",body:JSON.stringify(form)});setRef(data.case_reference);setLookup(data.case_reference);setStatus(await request("/api/v1/cases/"+encodeURIComponent(data.case_reference)));setTab("acompanhar");setError("");setSuccess("Caso cadastrado. Guarde sua referência para consultar o andamento."); }
-    catch(err){setError(err.message)} finally{setBusy(false)}
+    try {
+      const data=await request("/api/v1/cases",{method:"POST",body:JSON.stringify(form)});
+      setRef(data.case_reference);
+      setLookup(data.case_reference);
+      setStatus({status:data.status||"submitted",network:form.network,created_at:null});
+      setTab("acompanhar");
+      setError("");
+      setSuccess("Caso cadastrado. Guarde sua referência para consultar o andamento.");
+      try {
+        setStatus(await request("/api/v1/cases/"+encodeURIComponent(data.case_reference)));
+      } catch {
+        setSuccess("Caso cadastrado com sucesso. A atualização do andamento não está disponível neste momento; consulte novamente usando sua referência.");
+      }
+    } catch(err){setError(err.message)} finally{setBusy(false)}
   }
   async function checkStatus(e){
     e.preventDefault();setBusy(true);setError("");setStatus(null);
