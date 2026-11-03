@@ -37,7 +37,7 @@ def _resolve_network(requested: str | None) -> tuple[str, str, int | None]:
     elif name in _NETWORKS:
         env_name, expected_chain_id = _NETWORKS[name]
         url = os.getenv(env_name, "").strip()
-        if not url and name == configured_default:
+        if not url and (name == configured_default or (name == "ethereum" and configured_default == "evm")):
             url = os.getenv("EVM_RPC_URL", "").strip()
     else:
         raise ValueError("Rede EVM não suportada. Use ethereum, bsc, polygon, arbitrum, optimism ou base.")
