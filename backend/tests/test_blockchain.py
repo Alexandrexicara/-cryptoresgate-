@@ -99,8 +99,11 @@ class _FakeRPCResponse:
 
 
 class _FakeRPCClient:
+    last_instance = None
+
     def __init__(self, *args, **kwargs):
         self.calls = []
+        type(self).last_instance = self
 
     async def __aenter__(self):
         return self
@@ -169,6 +172,12 @@ def test_inspects_confirmed_transaction_and_decodes_token_transfer(monkeypatch):
     assert transfer["decimals"] == 6
     assert transfer["amount_raw"] == "1234500"
     assert transfer["amount"] == "1.2345"
+    metadata_calls = [
+        call for call in _FakeRPCClient.last_instance.calls
+        if call["method"] == "eth_call"
+    ]
+    assert len(metadata_calls) == 2
+    assert all(call["params"][1] == "0x100" for call in metadata_calls)
 
 
 def test_rejects_rpc_configured_for_wrong_chain(monkeypatch):
