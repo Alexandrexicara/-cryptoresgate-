@@ -218,11 +218,31 @@ async def inspect_public_transaction(tx_hash: str, network: str | None = None) -
             transfer.update(token)
             transfer["amount"] = _format_token_amount(transfer["amount_raw"], token.get("decimals"))
 
+    has_native_value = (_quantity(tx.get("value")) or 0) > 0
+    if status == "failed":
+        classification = "failed_on_chain"
+        recipient_credit_verification_required = False
+    elif status == "pending":
+        classification = "pending_confirmation"
+        recipient_credit_verification_required = False
+    elif status == "success" and (transfers or has_native_value):
+        classification = "confirmed_transfer_recipient_credit_unverifiable"
+        recipient_credit_verification_required = True
+    elif status == "success":
+        classification = "successful_transaction_no_supported_transfer_detected"
+        recipient_credit_verification_required = False
+    else:
+        classification = "unknown"
+        recipient_credit_verification_required = False
+
     return {
         "found": True,
         "transaction_hash": tx_hash,
         "network": network_name,
         "status": status,
+        "classification": classification,
+        "recipient_credit_verification_required": recipient_credit_verification_required,
+        "recovery_candidate": False,
         "block_number": block_number,
         "confirmations": confirmations,
         "from_address": tx.get("from"),
