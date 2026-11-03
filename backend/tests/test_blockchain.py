@@ -314,12 +314,61 @@ def test_classifies_success_without_native_or_supported_token_transfer(monkeypat
     assert result["recovery_candidate"] is False
 
 
-def test_classifies_transaction_without_receipt_as_pending(monkeypatch):
+def test_retries_missing_historical_receipt_on_fallback_rpc(monkeypatch):
+    import app.services.blockchain as blockchain
+
+    class MissingReceiptOnPrimaryClient(_FakeRPCClient):
+        async def post(self, url, json, headers):
+            if json["method"] == "eth_getTransactionReceipt" and url == "https://polygon.example":
+                self.calls.append(json)
+                return _FakeRPCResponse({"jsonrpc": "2.0", "id": json["id"], "result": None})
+            return await super().post(url, json, headers)
+
+    monkeypatch.setenv("POLYGON_RPC_URL", "https://polygon.example")
+    monkeypatch.setattr(blockchain.httpx, "AsyncClient", MissingReceiptOnPrimaryClient)
+    result = asyncio.run(blockchain.inspect_public_transaction("0x" + "f" * 64, network="polygon"))
+
+    assert result["status"] == "success"
+    assert result["classification"] == "confirmed_transfer_recipient_credit_unverifiable"
+    receipt_calls = [
+        call for call in MissingReceiptOnPrimaryClient.last_instance.calls
+        if call["method"] == "eth_getTransactionReceipt"
+    ]
+    assert len(receipt_calls) == 2
+
+
+def test_mined_transaction_without_any_receipt_is_unknown_not_pending(monkeypatch):
+    import app.services.blockchain as blockchain
+
+    class MinedWithoutReceiptClient(_FakeRPCClient):
+        async def post(self, url, json, headers):
+            if json["method"] == "eth_getTransactionReceipt":
+                self.calls.append(json)
+                return _FakeRPCResponse({"jsonrpc": "2.0", "id": json["id"], "result": None})
+            return await super().post(url, json, headers)
+
+    monkeypatch.setenv("POLYGON_RPC_URL", "https://polygon.example")
+    monkeypatch.setattr(blockchain.httpx, "AsyncClient", MinedWithoutReceiptClient)
+    result = asyncio.run(blockchain.inspect_public_transaction("0x" + "f" * 64, network="polygon"))
+
+    assert result["block_number"] == 256
+    assert result["status"] == "unknown"
+    assert result["classification"] == "unknown"
+    assert result["recipient_credit_verification_required"] is False
+    assert result["recovery_candidate"] is False
+
+
+def test_transaction_without_block_and_receipt_is_pending(monkeypatch):
     import app.services.blockchain as blockchain
 
     class PendingClient(_FakeRPCClient):
         async def post(self, url, json, headers):
+            if json["method"] == "eth_getTransactionByHash":
+                response = await super().post(url, json, headers)
+                response.payload["result"]["blockNumber"] = None
+                return response
             if json["method"] == "eth_getTransactionReceipt":
+                self.calls.append(json)
                 return _FakeRPCResponse({"jsonrpc": "2.0", "id": json["id"], "result": None})
             return await super().post(url, json, headers)
 
