@@ -182,13 +182,15 @@ async def inspect_public_transaction(tx_hash: str, network: str | None = None) -
 
         # Token metadata is best-effort: a non-standard token must not break the
         # transaction lookup. All calls remain read-only eth_call requests.
-        contracts = list(dict.fromkeys(item["token_contract"] for item in transfers))
+        contracts = list(dict.fromkeys(item["token_contract"] for item in transfers))[:100]
+        metadata_semaphore = asyncio.Semaphore(10)
         async def token_metadata(contract: str) -> tuple[str, dict[str, Any]]:
-            symbol_result, decimals_result = await asyncio.gather(
-                rpc("eth_call", [{"to": contract, "data": "0x95d89b41"}, "latest"]),
-                rpc("eth_call", [{"to": contract, "data": "0x313ce567"}, "latest"]),
-                return_exceptions=True,
-            )
+            async with metadata_semaphore:
+                symbol_result, decimals_result = await asyncio.gather(
+                    rpc("eth_call", [{"to": contract, "data": "0x95d89b41"}, "latest"]),
+                    rpc("eth_call", [{"to": contract, "data": "0x313ce567"}, "latest"]),
+                    return_exceptions=True,
+                )
             symbol = _decode_abi_string(symbol_result) if isinstance(symbol_result, str) else None
             decimals_raw = _quantity(decimals_result) if isinstance(decimals_result, str) else None
             decimals = decimals_raw if decimals_raw is not None and 0 <= decimals_raw <= 255 else None
