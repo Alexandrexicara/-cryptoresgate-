@@ -13,6 +13,7 @@ from app.routes.stellar import router as stellar_router
 from app.routes.solana import router as solana_router
 from app.routes.tron import router as tron_router
 from app.routes.discovery import router as discovery_router
+from app.routes.admin import router as admin_router
 
 app = FastAPI(
     title="CryptoResgate API",
@@ -54,6 +55,7 @@ app.include_router(stellar_router)
 app.include_router(solana_router)
 app.include_router(tron_router)
 app.include_router(discovery_router)
+app.include_router(admin_router)
 
 
 @app.get("/health")
