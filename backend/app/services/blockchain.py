@@ -251,22 +251,13 @@ async def inspect_public_transaction(tx_hash: str, network: str | None = None) -
         "gas_used": _quantity(receipt.get("gasUsed")) if isinstance(receipt, dict) else None,
         "token_transfers": transfers,
         "token_transfer_count": len(transfers),
-        "classification": (
-            "failed_on_chain" if status == "failed"
-            else "pending_confirmation" if status == "pending"
-            else "confirmed_transfer_recipient_credit_unverifiable" if status == "success" and transfers
-            else "successful_transaction_no_supported_token_transfer_detected" if status == "success"
-            else "unknown"
-        ),
-        "recipient_credit_verification_required": bool(status == "success" and transfers),
-        "recovery_candidate": False,
         "notice": (
             "A transação falhou na rede; não há transferência confirmada neste recibo."
             if status == "failed"
             else "A transação ainda não foi confirmada. Isso não prova perda de ativos."
             if status == "pending"
-            else "Transferência de token confirmada na blockchain. Isso não comprova crédito interno em exchange nem possibilidade de recuperação; é necessária confirmação do destinatário."
-            if transfers
+            else "Transferência nativa ou de token confirmada na blockchain. Isso não comprova crédito interno em exchange nem possibilidade de recuperação; é necessária confirmação do destinatário."
+            if recipient_credit_verification_required
             else "Transação confirmada, mas nenhum evento padrão ERC-20 Transfer foi identificado. Isso não prova perda; tokens não padronizados ou movimentos internos podem não aparecer neste formato."
         ),
     }
