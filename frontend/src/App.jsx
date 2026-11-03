@@ -4,7 +4,11 @@ import { ShieldCheck, Search, FilePlus2, Activity, ArrowUpRight, LockKeyhole, Me
 const API = (import.meta.env.VITE_API_URL || "https://cryptoresgate.onrender.com").replace(/\/$/, "");
 const notice = "O CryptoResgate não solicita seed phrase, chave privada, senha ou código 2FA. Nunca envie esses dados.";
 async function request(path, options={}) {
-  const response = await fetch(`${API}${path}`, { ...options, headers: { "Content-Type":"application/json", ...(options.headers||{}) } });
+  const headers = { ...(options.headers || {}) };
+  if (options.body !== undefined && options.body !== null && !Object.keys(headers).some((key) => key.toLowerCase() === "content-type")) {
+    headers["Content-Type"] = "application/json";
+  }
+  const response = await fetch(`${API}${path}`, { ...options, headers });
   const data = await response.json().catch(()=>({detail:"Resposta inválida do servidor."}));
   if (!response.ok) throw new Error(data.detail || "Não foi possível concluir a solicitação.");
   return data;
