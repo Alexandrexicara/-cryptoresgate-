@@ -17,11 +17,23 @@ app = FastAPI(
     description="API para triagem consentida de casos de criptoativos.",
 )
 
-origins = [
-    item.strip()
-    for item in os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
-    if item.strip()
-]
+DEFAULT_CORS_ORIGINS = (
+    "http://localhost:5173",
+    "https://cryptoresgate.netlify.app",
+)
+
+
+def build_cors_origins(configured: str | None) -> list[str]:
+    """Keep the production frontend allowed while preserving extra configured origins."""
+    values = [*DEFAULT_CORS_ORIGINS, *(configured or "").split(",")]
+    return list(dict.fromkeys(
+        origin.strip().rstrip("/")
+        for origin in values
+        if origin.strip()
+    ))
+
+
+origins = build_cors_origins(os.getenv("CORS_ORIGINS"))
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
