@@ -161,6 +161,36 @@ async def _fetch_blockscout_transaction(tx_hash: str) -> dict[str, Any] | None:
     return payload
 
 
+async def _fetch_routescan_receipt(tx_hash: str, chain_id: int) -> dict[str, Any] | None:
+    """Read a historical receipt from Routescan's keyless Etherscan-compatible API."""
+    url = f"https://api.routescan.io/v2/network/mainnet/evm/{chain_id}/etherscan/api"
+    params = {"module": "proxy", "action": "eth_getTransactionReceipt", "txhash": tx_hash}
+    timeout = httpx.Timeout(15.0, connect=5.0)
+    try:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            response = await client.get(
+                url,
+                params=params,
+                headers={
+                    "Accept": "application/json",
+                    "User-Agent": "CryptoResgate/0.4 (read-only blockchain analysis)",
+                },
+            )
+            response.raise_for_status()
+            payload = response.json()
+    except (httpx.HTTPError, ValueError):
+        return None
+    if not isinstance(payload, dict) or payload.get("error"):
+        return None
+    receipt = payload.get("result")
+    if (
+        not isinstance(receipt, dict)
+        or str(receipt.get("transactionHash", "")).lower() != tx_hash.lower()
+    ):
+        return None
+    return receipt
+
+
 async def inspect_public_transaction(tx_hash: str, network: str | None = None) -> dict[str, Any]:
     """Read-only EVM lookup including standard ERC-20 Transfer receipt logs."""
     if not _HASH_RE.fullmatch(tx_hash):
@@ -230,8 +260,15 @@ async def inspect_public_transaction(tx_hash: str, network: str | None = None) -
             raise BlockchainProviderError("O provedor RPC retornou dados de transação inválidos.")
 
         block_number = _quantity(tx.get("blockNumber"))
-        # A transaction with a block number is mined. If every RPC omits its
-        # receipt, consult a read-only explorer before leaving the result unknown.
+        # A transaction with a block number is mined. If RPC nodes omit the
+        # historical receipt, try Routescan's keyless read-only receipt endpoint
+        # before the Blockscout transaction index.
+        receipt_source = "rpc" if isinstance(receipt, dict) else None
+        if not isinstance(receipt, dict) and block_number is not None and expected_chain_id is not None:
+            routescan_receipt = await _fetch_routescan_receipt(tx_hash, expected_chain_id)
+            if isinstance(routescan_receipt, dict):
+                receipt = routescan_receipt
+                receipt_source = "routescan"
         explorer_data = None
         status = "pending" if block_number is None else "unknown"
         if isinstance(receipt, dict):
@@ -383,7 +420,7 @@ async def inspect_public_transaction(tx_hash: str, network: str | None = None) -
             else int(explorer_data["gas_used"]) if isinstance(explorer_data, dict) and str(explorer_data.get("gas_used", "")).isdigit()
             else None
         ),
-        "receipt_source": "rpc" if isinstance(receipt, dict) else "blockscout" if isinstance(explorer_data, dict) else None,
+        "receipt_source": receipt_source or ("blockscout" if isinstance(explorer_data, dict) else None),
         "token_transfers": transfers,
         "token_transfer_count": len(transfers),
         "non_burn_token_transfer_count": len(non_burn_transfers),

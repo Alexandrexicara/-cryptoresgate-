@@ -337,6 +337,56 @@ def test_retries_missing_historical_receipt_on_fallback_rpc(monkeypatch):
     assert len(receipt_calls) == 2
 
 
+def test_uses_routescan_receipt_when_rpc_nodes_omit_historical_receipt(monkeypatch):
+    import app.services.blockchain as blockchain
+
+    tx_hash = "0x" + "e" * 64
+    contract = "0x" + "a" * 40
+    sender = "0x" + "1" * 40
+    recipient = "0x" + "2" * 40
+
+    async def routescan_fallback(requested_hash, chain_id):
+        assert requested_hash == tx_hash
+        assert chain_id == 1
+        return {
+            "transactionHash": tx_hash,
+            "status": "0x1",
+            "gasUsed": "0xf6dd",
+            "logs": [{
+                "address": contract,
+                "topics": [
+                    TRANSFER_TOPIC,
+                    "0x" + "0" * 24 + sender[2:],
+                    "0x" + "0" * 24 + recipient[2:],
+                ],
+                "data": "0x" + format(1234500, "064x"),
+            }],
+        }
+
+    class NoReceiptEthereumClient(_FakeRPCClient):
+        async def post(self, url, json, headers):
+            if json["method"] == "eth_getTransactionReceipt":
+                self.calls.append(json)
+                return _FakeRPCResponse({"jsonrpc": "2.0", "id": json["id"], "result": None})
+            if json["method"] == "eth_chainId":
+                self.calls.append(json)
+                return _FakeRPCResponse({"jsonrpc": "2.0", "id": json["id"], "result": "0x1"})
+            return await super().post(url, json, headers)
+
+    monkeypatch.setenv("ETHEREUM_RPC_URL", "https://ethereum.example")
+    monkeypatch.setattr(blockchain.httpx, "AsyncClient", NoReceiptEthereumClient)
+    monkeypatch.setattr(blockchain, "_fetch_routescan_receipt", routescan_fallback)
+    result = asyncio.run(blockchain.inspect_public_transaction(tx_hash, network="ethereum"))
+
+    assert result["status"] == "success"
+    assert result["receipt_source"] == "routescan"
+    assert result["token_transfer_count"] == 1
+    transfer = result["token_transfers"][0]
+    assert transfer["amount"] == "1.2345"
+    assert transfer["from_address"] == sender
+    assert transfer["to_address"] == recipient
+
+
 def test_uses_blockscout_to_decode_historical_token_transfer_when_rpc_receipt_is_missing(monkeypatch):
     import app.services.blockchain as blockchain
 
@@ -370,6 +420,10 @@ def test_uses_blockscout_to_decode_historical_token_transfer_when_rpc_receipt_is
 
     monkeypatch.setenv("POLYGON_RPC_URL", "https://polygon.example")
     monkeypatch.setattr(blockchain.httpx, "AsyncClient", NoReceiptClient)
+    async def no_routescan_receipt(_tx_hash, _chain_id):
+        return None
+
+    monkeypatch.setattr(blockchain, "_fetch_routescan_receipt", no_routescan_receipt)
     monkeypatch.setattr(blockchain, "_fetch_blockscout_transaction", blockscout_fallback)
     result = asyncio.run(blockchain.inspect_public_transaction(tx_hash, network="polygon"))
 
@@ -391,6 +445,10 @@ def test_mined_transaction_without_any_receipt_is_unknown_not_pending(monkeypatc
     async def no_blockscout_result(_tx_hash):
         return None
 
+    async def no_routescan_receipt(_tx_hash, _chain_id):
+        return None
+
+    monkeypatch.setattr(blockchain, "_fetch_routescan_receipt", no_routescan_receipt)
     monkeypatch.setattr(blockchain, "_fetch_blockscout_transaction", no_blockscout_result)
 
     class MinedWithoutReceiptClient(_FakeRPCClient):
