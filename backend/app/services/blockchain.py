@@ -18,6 +18,32 @@ class BlockchainProviderError(RuntimeError):
 _HASH_RE = re.compile(r"^0x[a-fA-F0-9]{64}$")
 _ADDRESS_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")
 _TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+_NETWORKS = {
+    "ethereum": ("ETHEREUM_RPC_URL", 1),
+    "bsc": ("BSC_RPC_URL", 56),
+    "polygon": ("POLYGON_RPC_URL", 137),
+    "arbitrum": ("ARBITRUM_RPC_URL", 42161),
+    "optimism": ("OPTIMISM_RPC_URL", 10),
+    "base": ("BASE_RPC_URL", 8453),
+}
+
+
+def _resolve_network(requested: str | None) -> tuple[str, str, int | None]:
+    configured_default = os.getenv("EVM_NETWORK", "evm").strip().lower() or "evm"
+    name = (requested or configured_default).strip().lower()
+    if name == "evm":
+        url = os.getenv("EVM_RPC_URL", "").strip()
+        expected_chain_id = None
+    elif name in _NETWORKS:
+        env_name, expected_chain_id = _NETWORKS[name]
+        url = os.getenv(env_name, "").strip()
+        if not url and name == configured_default:
+            url = os.getenv("EVM_RPC_URL", "").strip()
+    else:
+        raise ValueError("Rede EVM não suportada. Use ethereum, bsc, polygon, arbitrum, optimism ou base.")
+    if not url:
+        raise BlockchainConfigurationError(f"Configure {name.upper()}_RPC_URL para consultar essa rede.")
+    return name, url, expected_chain_id
 
 
 def _quantity(value: str | None) -> int | None:
@@ -85,15 +111,12 @@ def _format_token_amount(raw: str, decimals: int | None) -> str | None:
         return None
 
 
-async def inspect_public_transaction(tx_hash: str) -> dict[str, Any]:
+async def inspect_public_transaction(tx_hash: str, network: str | None = None) -> dict[str, Any]:
     """Read-only EVM lookup including standard ERC-20 Transfer receipt logs."""
     if not _HASH_RE.fullmatch(tx_hash):
         raise ValueError("Informe um hash EVM válido de 32 bytes (0x + 64 caracteres hexadecimais).")
 
-    rpc_url = os.getenv("EVM_RPC_URL", "").strip()
-    network_name = os.getenv("EVM_NETWORK", "evm").strip() or "evm"
-    if not rpc_url:
-        raise BlockchainConfigurationError("Configure EVM_RPC_URL com um endpoint RPC público somente leitura.")
+    network_name, rpc_url, expected_chain_id = _resolve_network(network)
 
     timeout = httpx.Timeout(12.0, connect=5.0)
     async with httpx.AsyncClient(timeout=timeout) as client:
@@ -118,7 +141,15 @@ async def inspect_public_transaction(tx_hash: str) -> dict[str, Any]:
             rpc("eth_getTransactionByHash", [tx_hash]),
             rpc("eth_getTransactionReceipt", [tx_hash]),
         )
-        latest_block = await rpc("eth_blockNumber", [])
+        chain_id_raw, latest_block = await asyncio.gather(
+            rpc("eth_chainId", []),
+            rpc("eth_blockNumber", []),
+        )
+        actual_chain_id = _quantity(chain_id_raw)
+        if expected_chain_id is not None and actual_chain_id != expected_chain_id:
+            raise BlockchainProviderError(
+                f"O RPC configurado para {network_name} pertence a outra rede (chain ID inesperado)."
+            )
 
         if tx is None:
             return {
