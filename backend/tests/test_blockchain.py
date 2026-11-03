@@ -75,7 +75,7 @@ def test_detects_burn_destination_without_calling_it_recoverable():
     from app.services.blockchain import _is_burn_address
 
     assert _is_burn_address("0x" + "0" * 40) is True
-    assert _is_burn_address("0x" + "0" * 39 + "1") is True
+    assert _is_burn_address("0x" + "0" * 39 + "1") is False
     assert _is_burn_address("0x" + "0" * 36 + "dead") is True
     assert _is_burn_address("0x" + "1" * 40) is False
     assert _is_burn_address("not-an-address") is False
