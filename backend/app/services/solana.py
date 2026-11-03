@@ -44,6 +44,14 @@ def _format_sol(lamports: int) -> str:
     fractional = str(fraction).rjust(9, "0").rstrip("0")
     return f"{whole}.{fractional}" if fractional else str(whole)
 
+def _burn_operations(transaction: dict[str, Any]) -> int:
+    message=transaction.get("transaction",{}).get("message",{})
+    meta=transaction.get("meta") or {}
+    instructions=list(message.get("instructions") or [])
+    for group in meta.get("innerInstructions") or []:
+        instructions.extend(group.get("instructions") or [])
+    return sum(1 for ix in instructions if isinstance(ix,dict) and isinstance(ix.get("parsed"),dict) and ix["parsed"].get("type") in {"burn","burnChecked"})
+
 def _parsed_native_transfers(transaction: dict[str, Any]) -> list[dict[str, Any]]:
     message=transaction.get("transaction",{}).get("message",{})
     meta=transaction.get("meta") or {}
@@ -91,6 +99,6 @@ async def inspect_solana_transaction(signature: str) -> dict[str, Any]:
         classification="successful_transaction_no_supported_transfer_detected"
     return {"found":True,"network":"solana","transaction_hash":signature,"status":status,
         "slot":tx.get("slot"),"fee_lamports":meta.get("fee"),"error":meta.get("err"),
-        "token_balance_changes":token_deltas,"native_transfers":native_transfers,
+        "token_balance_changes":token_deltas,"native_transfers":native_transfers,"burn_operation_count":burn_operation_count,
         "classification":classification,"recovery_candidate":False,
-        "notice":"Consulta pública somente leitura. Alterações de saldo não provam crédito interno em exchange nem possibilidade de recuperação; movimentos não interpretados podem não aparecer nesta análise."}
+        "notice":("Operação de queima identificada; não classificar o ativo como perdido ou recuperável." if classification=="confirmed_burn_destination_not_recoverable" else "Consulta pública somente leitura. Alterações de saldo não provam crédito interno em exchange nem possibilidade de recuperação; movimentos não interpretados podem não aparecer nesta análise.")}
