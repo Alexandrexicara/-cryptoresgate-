@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 import psycopg
 from fastapi import FastAPI, HTTPException
@@ -12,10 +13,11 @@ from app.routes.communications import router as communications_router
 from app.routes.stellar import router as stellar_router
 from app.routes.solana import router as solana_router
 from app.routes.tron import router as tron_router
+from app.routes.wallet_authorization import router as wallet_authorization_router
 
 app = FastAPI(
     title="CryptoResgate API",
-    version="0.4.0",
+    version="0.5.0",
     description="API para triagem consentida de casos de criptoativos.",
 )
 
@@ -52,6 +54,21 @@ app.include_router(communications_router)
 app.include_router(stellar_router)
 app.include_router(solana_router)
 app.include_router(tron_router)
+app.include_router(wallet_authorization_router)
+
+
+@app.on_event("startup")
+def apply_additive_wallet_authorization_migration() -> None:
+    """Apply only the idempotent, additive migration; never alter existing records."""
+    dsn = os.getenv("DATABASE_URL", "").strip()
+    if not dsn:
+        return
+    migration_path = Path(__file__).resolve().parents[1] / "migrations" / "002_wallet_authorization.sql"
+    if not migration_path.is_file():
+        raise RuntimeError("Migration 002_wallet_authorization.sql não encontrada.")
+    sql = migration_path.read_text(encoding="utf-8")
+    with psycopg.connect(dsn, connect_timeout=8) as conn:
+        conn.execute(sql)
 
 
 @app.get("/health")
