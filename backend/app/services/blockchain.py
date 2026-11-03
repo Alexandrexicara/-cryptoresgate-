@@ -56,6 +56,18 @@ def _quantity(value: str | None) -> int | None:
         return None
 
 
+def _is_burn_address(address: str | None) -> bool:
+    """Recognize common provable EVM burn destinations; never treat them as recoverable."""
+    if not isinstance(address, str) or not _ADDRESS_RE.fullmatch(address):
+        return False
+    normalized = address.lower()
+    return normalized in {
+        "0x" + "0" * 40,
+        "0x" + "0" * 39 + "1",
+        "0x" + "0" * 36 + "dead",
+    } or normalized.endswith("dead")
+
+
 def _decode_transfer_log(log: dict[str, Any]) -> dict[str, Any] | None:
     """Decode the standard ERC-20 Transfer(address,address,uint256) event."""
     topics = log.get("topics")
@@ -81,6 +93,8 @@ def _decode_transfer_log(log: dict[str, Any]) -> dict[str, Any] | None:
         "from_address": "0x" + topics[1][-40:].lower(),
         "to_address": "0x" + topics[2][-40:].lower(),
         "amount_raw": str(int(data, 16)),
+        "destination_is_burn_address": _is_burn_address("0x" + topics[2][-40:]),
+        "destination_type": "burn_address" if _is_burn_address("0x" + topics[2][-40:]) else "standard_address",
     }
 
 
