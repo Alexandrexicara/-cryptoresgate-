@@ -39,6 +39,7 @@ def _extract_inputs(tx: dict[str, Any]) -> list[dict[str, Any]]:
         inputs.append({
             "address": prevout.get("scriptpubkey_address"),
             "value_sats": value if isinstance(value, int) else None,
+            "is_coinbase": bool(item.get("is_coinbase")),
         })
     return inputs
 
@@ -77,8 +78,16 @@ async def inspect_bitcoin_transaction(txid: str) -> dict[str, Any]:
     confirmed = bool(status_data.get("confirmed"))
     outputs = _extract_outputs(tx)
     inputs = _extract_inputs(tx)
+    is_coinbase = any(item.get("is_coinbase") for item in inputs)
 
-    if confirmed:
+    if is_coinbase:
+        classification = "coinbase_mining_reward_not_user_transfer"
+        status = "confirmed" if confirmed else "pending"
+        notice = (
+            "Esta é uma recompensa de mineração (coinbase), não uma transferência comum enviada "
+            "por um usuário. Não deve ser tratada como caso de recuperação."
+        )
+    elif confirmed:
         classification = "confirmed_transfer_requires_recipient_verification"
         status = "confirmed"
         notice = (
