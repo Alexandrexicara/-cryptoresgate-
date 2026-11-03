@@ -23,3 +23,10 @@ def test_extracts_bitcoin_outputs_in_satoshis_and_btc():
     assert outputs[0]["address"] == "bc1qexample"
     assert outputs[0]["value_sats"] == 125000000
     assert outputs[0]["value_btc"] == 1.25
+
+
+def test_coinbase_input_is_marked_as_mining_reward():
+    from app.services.bitcoin import _extract_inputs
+
+    inputs = _extract_inputs({"vin": [{"is_coinbase": True}]})
+    assert inputs[0]["is_coinbase"] is True
