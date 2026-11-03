@@ -82,8 +82,9 @@ def test_tron_formats_sun_without_float_rounding():
     assert _format_trx(1_234_567) == "1.234567"
 
 
-def test_tron_zero_address_is_burn_but_normal_address_is_not():
+def test_tron_zero_and_dead_addresses_are_burn_but_normal_address_is_not():
     assert _is_burn("41" + "0" * 40)
+    assert _is_burn("41" + "0" * 36 + "dead")
     assert not _is_burn("41" + "1" * 40)
 
 
