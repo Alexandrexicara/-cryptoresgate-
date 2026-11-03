@@ -73,7 +73,7 @@ def test_solana_formats_lamports_without_float_rounding():
 
 def test_solana_detects_burn_instruction_separately():
     tx = {"transaction": {"message": {"instructions": [
-        {"parsed": {"type": "burn", "info": {"amount": "100"}}}
+        {"program": "spl-token", "parsed": {"type": "burn", "info": {"amount": "100"}}}
     ]}}}
     assert _burn_operations(tx) == 1
 
@@ -89,8 +89,72 @@ def test_tron_zero_address_is_burn_but_normal_address_is_not():
 
 def test_solana_counts_token_transfer_instructions_separately_from_burns():
     tx = {"transaction": {"message": {"instructions": [
-        {"parsed": {"type": "burn", "info": {}}},
-        {"parsed": {"type": "transferChecked", "info": {}}},
+        {"program": "spl-token", "parsed": {"type": "burn", "info": {}}},
+        {"program": "spl-token", "parsed": {"type": "transferChecked", "info": {}}},
     ]}}}
     assert _burn_operations(tx) == 1
     assert _token_transfer_operations(tx) == 1
+
+
+
+def test_solana_does_not_count_native_system_transfer_as_spl_transfer():
+    tx = {"transaction": {"message": {"instructions": [
+        {"program": "system", "parsed": {"type": "transfer", "info": {}}}
+    ]}}}
+    assert _token_transfer_operations(tx) == 0
+
+
+def test_solana_counts_spl_token_2022_transfer():
+    tx = {"transaction": {"message": {"instructions": [
+        {"program": "spl-token-2022", "parsed": {"type": "transferChecked", "info": {}}}
+    ]}}}
+    assert _token_transfer_operations(tx) == 1
+
+
+def test_solana_successful_transaction_includes_transfer_count(monkeypatch):
+    import app.services.solana as solana
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"result": {
+                "slot": 123,
+                "meta": {
+                    "err": None,
+                    "fee": 5000,
+                    "preTokenBalances": [
+                        {"accountIndex": 1, "mint": "Mint111", "owner": "Sender111",
+                         "uiTokenAmount": {"amount": "1000", "decimals": 2}}
+                    ],
+                    "postTokenBalances": [
+                        {"accountIndex": 1, "mint": "Mint111", "owner": "Sender111",
+                         "uiTokenAmount": {"amount": "900", "decimals": 2}},
+                        {"accountIndex": 2, "mint": "Mint111", "owner": "Receiver111",
+                         "uiTokenAmount": {"amount": "100", "decimals": 2}}
+                    ]
+                },
+                "transaction": {"message": {"instructions": [
+                    {"program": "spl-token", "parsed": {"type": "transfer", "info": {}}}
+                ]}}
+            }}
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def post(self, *args, **kwargs):
+            return FakeResponse()
+
+    monkeypatch.setattr(solana.httpx, "AsyncClient", FakeClient)
+    result = asyncio.run(solana.inspect_solana_transaction("1" * 88))
+    assert result["status"] == "confirmed"
+    assert result["token_transfer_operation_count"] == 1
+    assert result["classification"] == "confirmed_transfer_requires_recipient_verification"
