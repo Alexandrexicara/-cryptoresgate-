@@ -58,7 +58,7 @@ def _parsed_native_transfers(transaction: dict[str, Any]) -> list[dict[str, Any]
         lamports=info.get("lamports")
         if not isinstance(lamports,int) or lamports<=0: continue
         transfers.append({"from_address":info.get("source"),"to_address":info.get("destination"),
-                          "amount_lamports":lamports,"amount_sol":(lambda q: f"{q[0]}.{str(q[1]).rjust(9, \"0\").rstrip(\"0\")}".rstrip(".") if q[1] else str(q[0]))(divmod(lamports,1_000_000_000))})
+                          "amount_lamports":lamports,"amount_sol":_format_sol(lamports)})
     return transfers
 
 async def inspect_solana_transaction(signature: str) -> dict[str, Any]:
