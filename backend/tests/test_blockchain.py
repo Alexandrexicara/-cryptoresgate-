@@ -249,3 +249,43 @@ def test_rejects_transfer_topics_with_nonzero_address_padding():
         "data": "0x" + format(1, "064x"),
     }
     assert _decode_transfer_log(event) is None
+
+def test_classifies_success_without_native_or_supported_token_transfer(monkeypatch):
+    import app.services.blockchain as blockchain
+
+    class NoTransferClient(_FakeRPCClient):
+        async def post(self, url, json, headers):
+            response = await super().post(url, json, headers)
+            if json["method"] == "eth_getTransactionReceipt":
+                response.payload["result"]["logs"] = []
+            if json["method"] == "eth_getTransactionByHash":
+                response.payload["result"]["value"] = "0x0"
+            return response
+
+    monkeypatch.setenv("POLYGON_RPC_URL", "https://polygon.example")
+    monkeypatch.setattr(blockchain.httpx, "AsyncClient", NoTransferClient)
+    result = asyncio.run(blockchain.inspect_public_transaction("0x" + "e" * 64, network="polygon"))
+
+    assert result["status"] == "success"
+    assert result["classification"] == "successful_transaction_no_supported_transfer_detected"
+    assert result["recipient_credit_verification_required"] is False
+    assert result["recovery_candidate"] is False
+
+
+def test_classifies_transaction_without_receipt_as_pending(monkeypatch):
+    import app.services.blockchain as blockchain
+
+    class PendingClient(_FakeRPCClient):
+        async def post(self, url, json, headers):
+            if json["method"] == "eth_getTransactionReceipt":
+                return _FakeRPCResponse({"jsonrpc": "2.0", "id": json["id"], "result": None})
+            return await super().post(url, json, headers)
+
+    monkeypatch.setenv("POLYGON_RPC_URL", "https://polygon.example")
+    monkeypatch.setattr(blockchain.httpx, "AsyncClient", PendingClient)
+    result = asyncio.run(blockchain.inspect_public_transaction("0x" + "f" * 64, network="polygon"))
+
+    assert result["status"] == "pending"
+    assert result["classification"] == "pending_confirmation"
+    assert result["recipient_credit_verification_required"] is False
+    assert result["recovery_candidate"] is False
