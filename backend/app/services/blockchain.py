@@ -63,9 +63,8 @@ def _is_burn_address(address: str | None) -> bool:
     normalized = address.lower()
     return normalized in {
         "0x" + "0" * 40,
-        "0x" + "0" * 39 + "1",
         "0x" + "0" * 36 + "dead",
-    } or normalized.endswith("dead")
+    }
 
 
 def _decode_transfer_log(log: dict[str, Any]) -> dict[str, Any] | None:
