@@ -1,0 +1,131 @@
+import asyncio
+import re
+from typing import Any
+
+import httpx
+
+BASE_URL = "https://api.trongrid.io"
+_HASH_RE = re.compile(r"^[a-fA-F0-9]{64}$")
+_TRANSFER_TOPIC = "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+
+
+class TronProviderError(RuntimeError):
+    pass
+
+
+def _is_burn(address: Any) -> bool:
+    if not isinstance(address, str):
+        return False
+    normalized = address.lower().removeprefix("0x")
+    return normalized in {
+        "41" + "0" * 40,
+        "0" * 40,
+        "0" * 36 + "dead",
+        "41" + "0" * 36 + "dead",
+    }
+
+
+def _format_trx(sun: int) -> str:
+    whole, fraction = divmod(sun, 1_000_000)
+    fractional = str(fraction).rjust(6, "0").rstrip("0")
+    return f"{whole}.{fractional}" if fractional else str(whole)
+
+
+def _decode_trc20(log: dict[str, Any]) -> dict[str, Any] | None:
+    topics = log.get("topics") or []
+    data = log.get("data") or ""
+    if len(topics) != 3 or str(topics[0]).lower().removeprefix("0x") != _TRANSFER_TOPIC:
+        return None
+    if not re.fullmatch(r"(?:0x)?[0-9a-fA-F]{64}", str(topics[1])):
+        return None
+    if not re.fullmatch(r"(?:0x)?[0-9a-fA-F]{64}", str(topics[2])):
+        return None
+    if not re.fullmatch(r"(?:0x)?[0-9a-fA-F]{64}", str(data)):
+        return None
+    sender = str(topics[1])[-40:].lower()
+    recipient = str(topics[2])[-40:].lower()
+    destination = "41" + recipient
+    return {
+        "token_contract": log.get("address"),
+        "from_address_hex": "41" + sender,
+        "to_address_hex": destination,
+        "amount_raw": str(int(str(data).removeprefix("0x"), 16)),
+        "destination_is_burn_address": _is_burn(destination),
+    }
+
+
+async def inspect_tron_transaction(txid: str) -> dict[str, Any]:
+    if not _HASH_RE.fullmatch(txid):
+        raise ValueError("Informe um TXID TRON válido com 64 caracteres hexadecimais.")
+    timeout = httpx.Timeout(18.0, connect=7.0)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        async def post(path: str) -> dict[str, Any]:
+            try:
+                response = await client.post(f"{BASE_URL}/wallet/{path}", json={"value": txid})
+                response.raise_for_status()
+                data = response.json()
+            except (httpx.HTTPError, ValueError) as exc:
+                raise TronProviderError("Não foi possível consultar o nó público TRON.") from exc
+            if not isinstance(data, dict):
+                raise TronProviderError("Resposta inválida do nó TRON.")
+            return data
+        tx, info = await asyncio.gather(
+            post("gettransactionbyid"), post("gettransactioninfobyid")
+        )
+    if not tx:
+        return {
+            "found": False, "network": "tron", "transaction_hash": txid,
+            "status": "not_found", "classification": "unknown", "recovery_candidate": False,
+            "notice": "TXID não encontrado no nó consultado. Isso não prova perda de ativos.",
+        }
+    native = []
+    for item in (tx.get("raw_data") or {}).get("contract") or []:
+        value = item.get("parameter", {}).get("value", {})
+        if item.get("type") == "TransferContract":
+            amount = value.get("amount")
+            if isinstance(amount, int) and amount > 0:
+                native.append({
+                    "from_address_hex": value.get("owner_address"),
+                    "to_address_hex": value.get("to_address"),
+                    "amount_sun": amount, "amount_trx": _format_trx(amount),
+                    "destination_is_burn_address": _is_burn(value.get("to_address")),
+                })
+    tokens = [
+        decoded for log in info.get("log") or []
+        if isinstance(log, dict) and (decoded := _decode_trc20(log))
+    ]
+    receipt = info.get("receipt") or {}
+    confirmed = bool(info.get("blockNumber"))
+    ret_values = tx.get("ret") or []
+    contract_failed = any(
+        isinstance(item, dict) and item.get("contractRet") not in {None, "SUCCESS"}
+        for item in ret_values
+    )
+    success = confirmed and receipt.get("result") in {None, "SUCCESS"} and not contract_failed
+    status = "confirmed" if success else "failed" if confirmed else "pending"
+    burn_count = sum(1 for item in native if item["destination_is_burn_address"])
+    burn_count += sum(1 for item in tokens if item["destination_is_burn_address"])
+    non_burn_native = any(not item["destination_is_burn_address"] for item in native)
+    non_burn_tokens = any(not item["destination_is_burn_address"] for item in tokens)
+    if status == "failed":
+        classification = "failed_on_chain"
+    elif status == "pending":
+        classification = "pending_confirmation"
+    elif non_burn_native or non_burn_tokens:
+        classification = "confirmed_transfer_requires_recipient_verification"
+    elif burn_count:
+        classification = "confirmed_burn_destination_not_recoverable"
+    else:
+        classification = "successful_transaction_no_supported_transfer_detected"
+    notice = (
+        "Destino de queima identificado; não classificar como ativo perdido ou recuperável."
+        if classification == "confirmed_burn_destination_not_recoverable"
+        else "Consulta pública somente leitura. Transferência confirmada não comprova crédito interno em exchange nem possibilidade de recuperação. Endereços hexadecimais TRON são apresentados sem conversão Base58."
+    )
+    return {
+        "found": True, "network": "tron", "transaction_hash": txid, "status": status,
+        "block_number": info.get("blockNumber"), "native_transfers": native,
+        "token_transfers": tokens, "token_transfer_count": len(tokens),
+        "burn_transfer_count": burn_count, "classification": classification,
+        "recovery_candidate": False, "notice": notice,
+    }

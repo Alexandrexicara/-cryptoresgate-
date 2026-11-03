@@ -1,6 +1,6 @@
 import asyncio
 
-from app.services.bitcoin import _extract_outputs, inspect_bitcoin_transaction
+from app.services.bitcoin import _extract_outputs, _format_btc, inspect_bitcoin_transaction
 
 
 def test_rejects_invalid_bitcoin_txid():
@@ -22,7 +22,14 @@ def test_extracts_bitcoin_outputs_in_satoshis_and_btc():
     assert len(outputs) == 1
     assert outputs[0]["address"] == "bc1qexample"
     assert outputs[0]["value_sats"] == 125000000
-    assert outputs[0]["value_btc"] == 1.25
+    assert outputs[0]["value_btc"] == "1.25"
+
+
+def test_formats_bitcoin_amounts_without_float_precision_loss():
+    assert _format_btc(1) == "0.00000001"
+    assert _format_btc(100_000_000) == "1"
+    assert _format_btc(123_456_789) == "1.23456789"
+    assert _format_btc(2_100_000_000_000_000) == "21000000"
 
 
 def test_coinbase_input_is_marked_as_mining_reward():

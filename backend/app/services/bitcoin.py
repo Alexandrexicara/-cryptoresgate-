@@ -12,6 +12,13 @@ class BitcoinProviderError(RuntimeError):
     pass
 
 
+def _format_btc(satoshis: int) -> str:
+    """Format satoshis as an exact BTC decimal string (never a float)."""
+    whole, fraction = divmod(satoshis, 100_000_000)
+    fractional_text = str(fraction).rjust(8, "0").rstrip("0")
+    return f"{whole}.{fractional_text}" if fractional_text else str(whole)
+
+
 def _extract_outputs(tx: dict[str, Any]) -> list[dict[str, Any]]:
     outputs = []
     for index, output in enumerate(tx.get("vout") or []):
@@ -24,7 +31,7 @@ def _extract_outputs(tx: dict[str, Any]) -> list[dict[str, Any]]:
             "index": index,
             "address": output.get("scriptpubkey_address"),
             "value_sats": value,
-            "value_btc": value / 100_000_000,
+            "value_btc": _format_btc(value),
         })
     return outputs
 
