@@ -1,7 +1,7 @@
 import pytest
 
-from app.services.solana import _token_deltas, _parsed_native_transfers, inspect_solana_transaction
-from app.services.tron import _decode_trc20, inspect_tron_transaction
+from app.services.solana import _token_deltas, _parsed_native_transfers, _burn_operations, _format_sol, inspect_solana_transaction
+from app.services.tron import _decode_trc20, _is_burn, _format_trx, inspect_tron_transaction
 
 
 def test_solana_token_balance_delta_uses_integer_amounts():
@@ -65,3 +65,23 @@ def test_tron_rejects_invalid_transaction_id():
     with pytest.raises(ValueError):
         import asyncio
         asyncio.run(inspect_tron_transaction("invalid"))
+
+
+def test_solana_formats_lamports_without_float_rounding():
+    assert _format_sol(1_234_567_891) == "1.234567891"
+
+
+def test_solana_detects_burn_instruction_separately():
+    tx = {"transaction": {"message": {"instructions": [
+        {"parsed": {"type": "burn", "info": {"amount": "100"}}}
+    ]}}}
+    assert _burn_operations(tx) == 1
+
+
+def test_tron_formats_sun_without_float_rounding():
+    assert _format_trx(1_234_567) == "1.234567"
+
+
+def test_tron_zero_address_is_burn_but_normal_address_is_not():
+    assert _is_burn("41" + "0" * 40)
+    assert not _is_burn("41" + "1" * 40)
