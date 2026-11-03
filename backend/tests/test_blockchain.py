@@ -85,3 +85,102 @@ def test_decodes_abi_symbol_and_formats_token_amount():
     assert _format_token_amount("0", 18) == "0"
     assert _format_token_amount("123456789012345678901234567890123456789", 18) == "123456789012345678901.234567890123456789"
     assert _format_token_amount("1234500", None) is None
+
+
+class _FakeRPCResponse:
+    def __init__(self, payload):
+        self.payload = payload
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return self.payload
+
+
+class _FakeRPCClient:
+    def __init__(self, *args, **kwargs):
+        self.calls = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return False
+
+    async def post(self, url, json, headers):
+        self.calls.append(json)
+        method = json["method"]
+        params = json["params"]
+        if method == "eth_getTransactionByHash":
+            result = {
+                "hash": params[0],
+                "blockNumber": "0x100",
+                "from": "0x" + "1" * 40,
+                "to": "0x" + "2" * 40,
+                "value": "0x0",
+            }
+        elif method == "eth_getTransactionReceipt":
+            result = {
+                "status": "0x1",
+                "gasUsed": "0x5208",
+                "logs": [{
+                    "address": "0x" + "a" * 40,
+                    "topics": [
+                        TRANSFER_TOPIC,
+                        "0x" + "0" * 24 + "1" * 40,
+                        "0x" + "0" * 24 + "2" * 40,
+                    ],
+                    "data": "0x" + format(1234500, "064x"),
+                }],
+            }
+        elif method == "eth_chainId":
+            result = "0x89"
+        elif method == "eth_blockNumber":
+            result = "0x105"
+        elif method == "eth_call" and params[0]["data"] == "0x95d89b41":
+            encoded = format(32, "064x") + format(4, "064x") + b"USDC".hex().ljust(64, "0")
+            result = "0x" + encoded
+        elif method == "eth_call" and params[0]["data"] == "0x313ce567":
+            result = "0x" + format(6, "064x")
+        else:
+            result = None
+        return _FakeRPCResponse({"jsonrpc": "2.0", "id": json["id"], "result": result})
+
+
+def test_inspects_confirmed_transaction_and_decodes_token_transfer(monkeypatch):
+    import app.services.blockchain as blockchain
+
+    monkeypatch.setenv("POLYGON_RPC_URL", "https://polygon.example")
+    monkeypatch.setattr(blockchain.httpx, "AsyncClient", _FakeRPCClient)
+    tx_hash = "0x" + "b" * 64
+
+    result = asyncio.run(blockchain.inspect_public_transaction(tx_hash, network="polygon"))
+
+    assert result["found"] is True
+    assert result["network"] == "polygon"
+    assert result["status"] == "success"
+    assert result["block_number"] == 256
+    assert result["confirmations"] == 6
+    assert result["gas_used"] == 21000
+    assert result["token_transfer_count"] == 1
+    transfer = result["token_transfers"][0]
+    assert transfer["symbol"] == "USDC"
+    assert transfer["decimals"] == 6
+    assert transfer["amount_raw"] == "1234500"
+    assert transfer["amount"] == "1.2345"
+
+
+def test_rejects_rpc_configured_for_wrong_chain(monkeypatch):
+    import app.services.blockchain as blockchain
+
+    class WrongChainClient(_FakeRPCClient):
+        async def post(self, url, json, headers):
+            if json["method"] == "eth_chainId":
+                return _FakeRPCResponse({"jsonrpc": "2.0", "id": json["id"], "result": "0x1"})
+            return await super().post(url, json, headers)
+
+    monkeypatch.setenv("POLYGON_RPC_URL", "https://wrong-chain.example")
+    monkeypatch.setattr(blockchain.httpx, "AsyncClient", WrongChainClient)
+    with pytest.raises(blockchain.BlockchainProviderError, match="outra rede"):
+        asyncio.run(blockchain.inspect_public_transaction("0x" + "c" * 64, network="polygon"))
