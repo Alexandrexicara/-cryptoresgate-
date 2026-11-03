@@ -161,3 +161,69 @@ def test_solana_successful_transaction_includes_transfer_count(monkeypatch):
     assert result["status"] == "confirmed"
     assert result["token_transfer_operation_count"] == 1
     assert result["classification"] == "confirmed_transfer_requires_recipient_verification"
+
+
+
+def test_tron_inspects_confirmed_native_and_trc20_transfers(monkeypatch):
+    import app.services.tron as tron
+
+    txid = "a" * 64
+    topic0 = "0x" + "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+    token_log = {
+        "address": "41" + "3" * 40,
+        "topics": [
+            topic0,
+            "0x" + "0" * 24 + "1" * 40,
+            "0x" + "0" * 24 + "2" * 40,
+        ],
+        "data": "0x" + format(123456789, "064x"),
+    }
+
+    class FakeResponse:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self.payload
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def post(self, url, json):
+            if url.endswith("/gettransactionbyid"):
+                return FakeResponse({
+                    "raw_data": {"contract": [{
+                        "type": "TransferContract",
+                        "parameter": {"value": {
+                            "owner_address": "41" + "1" * 40,
+                            "to_address": "41" + "2" * 40,
+                            "amount": 1000000,
+                        }},
+                    }]},
+                    "ret": [{"contractRet": "SUCCESS"}],
+                })
+            return FakeResponse({
+                "blockNumber": 123,
+                "receipt": {"result": "SUCCESS"},
+                "log": [token_log],
+            })
+
+    monkeypatch.setattr(tron.httpx, "AsyncClient", FakeClient)
+    result = asyncio.run(tron.inspect_tron_transaction(txid))
+    assert result["found"] is True
+    assert result["status"] == "confirmed"
+    assert result["token_transfer_count"] == 1
+    assert result["native_transfers"][0]["amount_trx"] == "1"
+    assert result["token_transfers"][0]["amount_raw"] == "123456789"
+    assert result["classification"] == "confirmed_transfer_requires_recipient_verification"
+    assert result["recovery_candidate"] is False
