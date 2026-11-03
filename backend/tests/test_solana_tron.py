@@ -164,6 +164,55 @@ def test_solana_successful_transaction_includes_transfer_count(monkeypatch):
 
 
 
+def test_solana_falls_back_when_primary_rpc_returns_error(monkeypatch):
+    import app.services.solana as solana
+
+    monkeypatch.setenv("SOLANA_RPC_URL", "https://primary.example")
+    attempted_urls = []
+
+    class FakeResponse:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self.payload
+
+    class FallbackClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def post(self, url, json):
+            attempted_urls.append(url)
+            if url == "https://primary.example":
+                return FakeResponse({
+                    "jsonrpc": "2.0", "id": 1,
+                    "error": {"code": -32000, "message": "temporary RPC failure"},
+                })
+            return FakeResponse({"jsonrpc": "2.0", "id": 1, "result": {
+                "slot": 123, "meta": {"err": None, "fee": 5000},
+                "transaction": {"message": {"instructions": []}},
+            }})
+
+    monkeypatch.setattr(solana.httpx, "AsyncClient", FallbackClient)
+    result = asyncio.run(solana.inspect_solana_transaction("1" * 88))
+
+    assert result["found"] is True
+    assert result["status"] == "confirmed"
+    assert attempted_urls[:2] == [
+        "https://primary.example",
+        "https://api.mainnet-beta.solana.com",
+    ]
+
+
 def test_tron_inspects_confirmed_native_and_trc20_transfers(monkeypatch):
     import app.services.tron as tron
 

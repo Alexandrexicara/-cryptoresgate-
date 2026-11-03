@@ -1,9 +1,20 @@
+import os
 import re
 from typing import Any
 
 import httpx
 
-RPC_URL = "https://api.mainnet-beta.solana.com"
+DEFAULT_RPC_URL = "https://api.mainnet-beta.solana.com"
+PUBLIC_RPC_FALLBACKS = (
+    "https://solana-rpc.publicnode.com",
+    "https://solana.drpc.org",
+)
+
+
+def _rpc_urls() -> tuple[str, ...]:
+    configured = os.getenv("SOLANA_RPC_URL", "").strip()
+    candidates = [configured or DEFAULT_RPC_URL, DEFAULT_RPC_URL, *PUBLIC_RPC_FALLBACKS]
+    return tuple(dict.fromkeys(url for url in candidates if url))
 _SIG_RE = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{80,100}$")
 
 
@@ -92,23 +103,42 @@ def _parsed_native_transfers(transaction: dict[str, Any]) -> list[dict[str, Any]
 async def inspect_solana_transaction(signature: str) -> dict[str, Any]:
     if not _SIG_RE.fullmatch(signature):
         raise ValueError("Informe uma assinatura Solana válida em Base58.")
-    timeout = httpx.Timeout(18.0, connect=7.0)
+    timeout = httpx.Timeout(15.0, connect=6.0)
+    request_body = {
+        "jsonrpc": "2.0", "id": 1, "method": "getTransaction",
+        "params": [signature, {
+            "encoding": "jsonParsed", "commitment": "finalized",
+            "maxSupportedTransactionVersion": 0,
+        }],
+    }
+    payload: dict[str, Any] | None = None
+    last_error: Exception | None = None
+    saw_not_found = False
     async with httpx.AsyncClient(timeout=timeout) as client:
-        try:
-            response = await client.post(RPC_URL, json={
-                "jsonrpc": "2.0", "id": 1, "method": "getTransaction",
-                "params": [signature, {
-                    "encoding": "jsonParsed", "commitment": "finalized",
-                    "maxSupportedTransactionVersion": 0,
-                }],
-            })
-            response.raise_for_status()
-            payload = response.json()
-        except (httpx.HTTPError, ValueError) as exc:
-            raise SolanaProviderError("Não foi possível consultar o RPC público Solana.") from exc
-    if not isinstance(payload, dict) or payload.get("error"):
-        raise SolanaProviderError("O RPC Solana retornou erro na consulta.")
-    tx = payload.get("result")
+        for rpc_url in _rpc_urls():
+            try:
+                response = await client.post(rpc_url, json=request_body)
+                response.raise_for_status()
+                candidate = response.json()
+                if not isinstance(candidate, dict):
+                    last_error = SolanaProviderError("Resposta inválida do RPC Solana.")
+                    continue
+                if candidate.get("error"):
+                    last_error = SolanaProviderError("Um RPC Solana recusou a consulta.")
+                    continue
+                if candidate.get("result") is None:
+                    # Some public nodes do not retain older transaction history.
+                    # Check the next provider before reporting the signature absent.
+                    saw_not_found = True
+                    continue
+                payload = candidate
+                break
+            except (httpx.HTTPError, ValueError) as exc:
+                last_error = exc
+                continue
+    if payload is None and not saw_not_found:
+        raise SolanaProviderError("Não foi possível consultar os RPCs públicos Solana.") from last_error
+    tx = payload.get("result") if payload is not None else None
     if tx is None:
         return {
             "found": False, "network": "solana", "transaction_hash": signature,
